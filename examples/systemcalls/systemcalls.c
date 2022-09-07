@@ -1,3 +1,15 @@
+/*
+*   file:      writer.c
+*   brief:     implements the functionality of writer.sh. Takes 2 arguments <text-file-path> and <string> and writes the string into the file.
+*              Assumes that the path to the file already exists.
+*   author:    Guruprashanth Krishnakumar, gukr5411@colorado.edu
+*   date:      09/04/2022
+*   refs:      Ch.2 of Linux System Programming by Robert Love, lecture slides of ECEN 5713 - Advanced Embedded Software Dev.
+*/
+
+/*
+*   HEADER FILES
+*/
 #include "systemcalls.h"
 #include <stdio.h>
 #include <syslog.h>
@@ -26,6 +38,7 @@ bool do_system(const char *cmd)
  *   or false() if it returned a failure
 */
     int ret = system(cmd);
+    //if system call fails, return error.
     if(ret == -1)
     {
         perror("System error");
@@ -59,12 +72,11 @@ bool do_exec(int count, ...)
     va_start(args, count);
     char * command[count+1];
     int i;
+    //copy variable number of args passed to the command vector
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
-        printf("%s ",command[i]);
     }
-    printf("\n");
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
@@ -82,56 +94,54 @@ bool do_exec(int count, ...)
     int status;
     pid_t pid;
     pid = fork ();
+    //handle if fork failed
     if (pid == -1)
     {
         perror("Fork");
         va_end(args);
-        printf("FORK returning FALSE\n");
         return false;
     }
+    //if child process
     else if (pid == 0) 
     {
-        printf("command %s, vector1 %s vector2 %s\n",command[0],(command+1)[0],(command+1)[1]);
         if(execv (command[0], (command)) == -1)
         {
+            //if exec returns, that means it failed
             perror("Exec");
             va_end(args);
-            printf("EXEC returning FALSE\n");
             exit(-1);    
-            //return false;
         }
 
     }
+    //if parent process
     else
     {
         if (waitpid (pid, &status, 0) == -1)
         {
+            //if there's an issue with the invocation of the the waitpid function
             perror("Wait");
             va_end(args);
-            printf("WAIT returning FALSE\n");
             return false;
         }
+        //if the child process returned normally (did not exit by unnatural means like a signal)
         else if (WIFEXITED (status))
         {
+            //check exit status of the child
             int ret_status = WEXITSTATUS(status);
-            printf("ret status 1 %d\n",ret_status);
             if(ret_status!=0)
             {
                 printf("Command exited with non-zero status\n");
                 va_end(args);
-                printf("Command returning FALSE\n");
-                //exit(-1);
                 return false;
             }
+            //only if the child exited normally with a status of 0, return true
             else
             {
                 va_end(args);
-                printf("ret status %d returning TRUE\n",ret_status);
                 return true;
             }
         }
         va_end(args);
-        printf("EXIT returning FALSE\n");
         return false;
     }
     return false;
@@ -149,17 +159,12 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     int status;
     char * command[count+1];
     int i;
-    printf("redirect\n");
+    //copy the variable number of args passed to the command vector
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
-        printf("%s ",command[i]);
     }
-    printf("\nend of c\n");
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    //command[count] = command[count];
 
 
 /*
@@ -169,73 +174,76 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    //open the file to redirect STDOUT to
     int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     if(fd<0)
     {
+        //if open failed
         perror("Open");
         return false;
     }
 
     
-        pid_t pid;
+    pid_t pid;
     pid = fork ();
     if (pid == -1)
     {
+        //if fork failed
         perror("Fork");
         va_end(args);
-        printf("FORK returning FALSE\n");
         return false;
     }
+    //if child process
     else if(pid == 0)
     {
-        printf("In child\n");
-        printf("\ncommand %s, vector1 %s vector2 %s\n",command[0],(command+1)[0],(command+1)[1]);
+        //fd and 1 (which is STDOUT) both point to the same thing now i.e, STDOUT points to fd
         if (dup2(fd, 1) < 0)
-        { 
+        {
+            //if dup failed. 
             perror("dup2"); 
-            //printf("dup2 returning FALSE\n");
             return false; 
         }
         close(fd);
-        //printf("\nEXECING\n");
+        //exec the command
         if(execv (command[0], (command))== -1)
         {            
+            //if exec returned
             perror("Exec");
             va_end(args);
-            printf("EXEC returning FALSE\n");
             exit(-1);
-            //return false;
         }
     }
+    //if parent process
     else
     {
         close(fd);
+        //wait for the child
         if (waitpid (pid, &status, 0) == -1)
         {
             perror("Wait");
             va_end(args);
-            printf("Wait returning FALSE\n");
             return false;
         }
+        //if child exited normally
         else if (WIFEXITED (status))
         {
             int ret_status = WEXITSTATUS(status);
+            //check exit status of child
             if(ret_status!=0)
             {
                 printf("Command exited with non-zero status %d\n",ret_status);
                 va_end(args);
-                printf("Command returning FALSE\n");
                 return false;
             }
+            //if child returned normally and exit status = 0, then return true
             else
             {
                 va_end(args);
-                printf(" returning True\n");
                 return true;
             }
         }        
+        //if child did not return normally return false
         va_end(args);
-        printf("Exit returning FALSE\n");
         return false;
     }
     return false;
