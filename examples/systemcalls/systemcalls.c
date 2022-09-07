@@ -1,10 +1,9 @@
 /*
-*   file:      writer.c
-*   brief:     implements the functionality of writer.sh. Takes 2 arguments <text-file-path> and <string> and writes the string into the file.
-*              Assumes that the path to the file already exists.
-*   author:    Guruprashanth Krishnakumar, gukr5411@colorado.edu
-*   date:      09/04/2022
-*   refs:      Ch.2 of Linux System Programming by Robert Love, lecture slides of ECEN 5713 - Advanced Embedded Software Dev.
+*   file:      systemcalls.c
+*   brief:     Executes a system call either as a system() argument or as a combination of fork, exec and wait function calls
+*   author:    Guruprashanth Krishnakumar, gukr5411@colorado.edu, started code provided as part of assignment
+*   date:      09/07/2022
+*   refs:      Ch.5 of Linux System Programming by Robert Love, lecture slides of ECEN 5713 - Advanced Embedded Software Dev.
 */
 
 /*
