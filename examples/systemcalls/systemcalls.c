@@ -1,5 +1,14 @@
 #include "systemcalls.h"
-
+#include <stdio.h>
+#include <syslog.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/wait.h>
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -16,7 +25,17 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
+    int ret = system(cmd);
+    if(ret == -1)
+    {
+        perror("System error");
+        return false;
+    }
+    if(ret > 0)
+    {
+        return false;
+    }   
+    
     return true;
 }
 
@@ -43,11 +62,13 @@ bool do_exec(int count, ...)
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
+        printf("%s ",command[i]);
     }
+    printf("\n");
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    //command[count] = command[count];
 
 /*
  * TODO:
@@ -58,10 +79,62 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    int status;
+    pid_t pid;
+    pid = fork ();
+    if (pid == -1)
+    {
+        perror("Fork");
+        va_end(args);
+        printf("FORK returning FALSE\n");
+        return false;
+    }
+    else if (pid == 0) 
+    {
+        printf("command %s, vector1 %s vector2 %s\n",command[0],(command+1)[0],(command+1)[1]);
+        if(execv (command[0], (command)) == -1)
+        {
+            perror("Exec");
+            va_end(args);
+            printf("EXEC returning FALSE\n");
+            exit(-1);    
+            //return false;
+        }
 
-    va_end(args);
-
-    return true;
+    }
+    else
+    {
+        if (waitpid (pid, &status, 0) == -1)
+        {
+            perror("Wait");
+            va_end(args);
+            printf("WAIT returning FALSE\n");
+            return false;
+        }
+        else if (WIFEXITED (status))
+        {
+            int ret_status = WEXITSTATUS(status);
+            printf("ret status 1 %d\n",ret_status);
+            if(ret_status!=0)
+            {
+                printf("Command exited with non-zero status\n");
+                va_end(args);
+                printf("Command returning FALSE\n");
+                //exit(-1);
+                return false;
+            }
+            else
+            {
+                va_end(args);
+                printf("ret status %d returning TRUE\n",ret_status);
+                return true;
+            }
+        }
+        va_end(args);
+        printf("EXIT returning FALSE\n");
+        return false;
+    }
+    return false;
 }
 
 /**
@@ -73,16 +146,20 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 {
     va_list args;
     va_start(args, count);
+    int status;
     char * command[count+1];
     int i;
+    printf("redirect\n");
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
+        printf("%s ",command[i]);
     }
+    printf("\nend of c\n");
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    //command[count] = command[count];
 
 
 /*
@@ -92,8 +169,74 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if(fd<0)
+    {
+        perror("Open");
+        return false;
+    }
 
-    va_end(args);
-
-    return true;
+    
+        pid_t pid;
+    pid = fork ();
+    if (pid == -1)
+    {
+        perror("Fork");
+        va_end(args);
+        printf("FORK returning FALSE\n");
+        return false;
+    }
+    else if(pid == 0)
+    {
+        printf("In child\n");
+        printf("\ncommand %s, vector1 %s vector2 %s\n",command[0],(command+1)[0],(command+1)[1]);
+        if (dup2(fd, 1) < 0)
+        { 
+            perror("dup2"); 
+            //printf("dup2 returning FALSE\n");
+            return false; 
+        }
+        close(fd);
+        //printf("\nEXECING\n");
+        if(execv (command[0], (command))== -1)
+        {            
+            perror("Exec");
+            va_end(args);
+            printf("EXEC returning FALSE\n");
+            exit(-1);
+            //return false;
+        }
+    }
+    else
+    {
+        close(fd);
+        if (waitpid (pid, &status, 0) == -1)
+        {
+            perror("Wait");
+            va_end(args);
+            printf("Wait returning FALSE\n");
+            return false;
+        }
+        else if (WIFEXITED (status))
+        {
+            int ret_status = WEXITSTATUS(status);
+            if(ret_status!=0)
+            {
+                printf("Command exited with non-zero status %d\n",ret_status);
+                va_end(args);
+                printf("Command returning FALSE\n");
+                return false;
+            }
+            else
+            {
+                va_end(args);
+                printf(" returning True\n");
+                return true;
+            }
+        }        
+        va_end(args);
+        printf("Exit returning FALSE\n");
+        return false;
+    }
+    return false;
 }
