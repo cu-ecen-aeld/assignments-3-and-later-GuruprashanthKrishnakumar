@@ -23,6 +23,11 @@ fi
 
 mkdir -p ${OUTDIR}
 
+if [ $? -eq 1 ]
+    echo "Failed to create directory"
+    exit 1
+fi
+
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/linux-stable" ]; then
     #Clone only if the repository does not exist.
@@ -35,6 +40,11 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
+    make ${ARCH} ${CROSS_COMPILE}mrproper
+    make ${ARCH} ${CROSS_COMPILE}defconfig
+    make ${ARCH} ${CROSS_COMPILE}all
+    make ${ARCH} ${CROSS_COMPILE}modules
+    make ${ARCH} ${CROSS_COMPILE}dtbs
 fi
 
 echo "Adding the Image in outdir"
@@ -48,33 +58,57 @@ then
 fi
 
 # TODO: Create necessary base directories
+mkdir ${OUTDIR}/rootfs
+cd ${OUTDIR}/rootfs
+mkdir bin dev etc home lib proc sbin sys tmp usr var
+mkdir usr/bin usr/lib usr/sbin
+mkdir -p var/log
 
-cd "$OUTDIR"
+cd ${OUTDIR}
 if [ ! -d "${OUTDIR}/busybox" ]
 then
 git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
     # TODO:  Configure busybox
+    make distclean
+    make defconfig
 else
     cd busybox
 fi
 
 # TODO: Make and install busybox
-
+sudo ${ARCH} ${CROSS_COMPILE}install
 echo "Library dependencies"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
-
+cd ${OUTDIR}/rootfs
+cp -a ${SYSROOT}/lib/ld-linux-armhf.so.3 lib
+cp -a ${SYSROOT}/lib/ld-2.22.so lib
+cp -a ${SYSROOT}/lib/libc.so.6 lib
+cp -a ${SYSROOT}/lib/libc-2.22.so lib
+cp -a ${SYSROOT}/lib/libm.so.6 lib
+cp -a ${SYSROOT}/lib/libm-2.22.so lib
 # TODO: Make device nodes
-
+sudo mknod -m 666 dev/null c 1 3
+sudo mknod -m 600 dev/console c 5 1
+make ${ARCH} ${CROSS_COMPILE} INSTALL_MOD_PATH=${OUTDIR}/rootfs modules_install
 # TODO: Clean and build the writer utility
+cd ${FINDER_APP_DIR}
+make clean
+make CROSS_COMPILE=${CROSS_COMPILE}
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
-
+cp ${FINDER_APP_DIR}/writer ${FINDER_APP_DIR}/finder-test.sh ${FINDER_APP_DIR}/finder.sh ${FINDER_APP_DIR}/conf/username.txt ${FINDER_APP_DIR}/autorun_qemu.sh ${OUTDIR}/rootfs/home
 # TODO: Chown the root directory
-
+cd ${OUTDIR}/rootfs
+sudo chown -R root:root *
 # TODO: Create initramfs.cpio.gz
+find . | cpio -H newc -ov --owner root:root > ../initramfs.cpio
+find . | cpio -H newc -ov --owner root:root > initramfs.cpio
+gzip initramfs.cpio
+cd ..
+gzip initramfs.cpio
