@@ -57,7 +57,7 @@ then
 	echo "Deleting rootfs directory at ${OUTDIR}/rootfs and starting over"
     sudo rm  -rf ${OUTDIR}/rootfs
 fi
-sudo env "PATH=$PATH"
+
 # TODO: Create necessary base directories
 mkdir ${OUTDIR}/rootfs
 cd ${OUTDIR}/rootfs
@@ -80,7 +80,7 @@ else
 fi
 
 # TODO: Make and install busybox
-sudo make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} CONFIG_PREFIX=${OUTDIR}/rootfs install
+sudo env "PATH=$PATH" make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} CONFIG_PREFIX=${OUTDIR}/rootfs install
 echo "Library dependencies"
 ${CROSS_COMPILE}readelf -a busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a busybox | grep "Shared library"
