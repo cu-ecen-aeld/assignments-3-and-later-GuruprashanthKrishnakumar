@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #Commands leveraged from lecture slides as well as internet (stack overflow)
 #if number of arguments are less than 2 return error
 if [ $# -lt 2 ]

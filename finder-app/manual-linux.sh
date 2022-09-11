@@ -61,10 +61,11 @@ sudo env "PATH=$PATH"
 # TODO: Create necessary base directories
 mkdir ${OUTDIR}/rootfs
 cd ${OUTDIR}/rootfs
-mkdir bin dev etc home lib proc sbin sys tmp usr var
+mkdir bin dev etc home lib lib64 proc sbin sys tmp usr var
 mkdir usr/bin usr/lib usr/sbin
 mkdir -p var/log
-
+cd ${OUTDIR}/rootfs/home
+mkdir conf
 cd ${OUTDIR}
 if [ ! -d "${OUTDIR}/busybox" ]
 then
@@ -86,16 +87,16 @@ ${CROSS_COMPILE}readelf -a busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
 cd ${OUTDIR}/rootfs
-cp -a ${SYSROOT}/lib/ld-linux-aarch64.so.1 lib
-cp -a ${SYSROOT}/lib64/libm.so.6 lib
-cp -a ${SYSROOT}/lib64/libresolv.so.2 lib
-cp -a ${SYSROOT}/lib64/libc.so.6 lib
+cp ${SYSROOT}/lib/ld-linux-aarch64.so.1 lib
+cp ${SYSROOT}/lib64/libm.so.6 lib64
+cp ${SYSROOT}/lib64/libresolv.so.2 lib64
+cp ${SYSROOT}/lib64/libc.so.6 lib64
 
+cd ${OUTDIR}/rootfs
 # TODO: Make device nodes
 sudo mknod -m 666 dev/null c 1 3
 sudo mknod -m 600 dev/console c 5 1
 cd ${OUTDIR}/linux-stable
-sudo make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} INSTALL_MOD_PATH=${OUTDIR}/rootfs modules_install
 # TODO: Clean and build the writer utility
 cd ${FINDER_APP_DIR}
 make clean
@@ -103,8 +104,9 @@ make CROSS_COMPILE=${CROSS_COMPILE}
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
-cp ${FINDER_APP_DIR}/writer ${FINDER_APP_DIR}/finder-test.sh ${FINDER_APP_DIR}/finder.sh ${FINDER_APP_DIR}/conf/username.txt ${FINDER_APP_DIR}/autorun-qemu.sh ${OUTDIR}/rootfs/home
-
+cp ${FINDER_APP_DIR}/writer ${FINDER_APP_DIR}/finder-test.sh ${FINDER_APP_DIR}/finder.sh ${FINDER_APP_DIR}/autorun-qemu.sh ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/conf/username.txt ${OUTDIR}/rootfs/home/conf
+chmod +x ${OUTDIR}/rootfs/home/finder.sh
 # TODO: Chown the root directory
 cd ${OUTDIR}/rootfs
 sudo chown -R root:root *
