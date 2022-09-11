@@ -43,12 +43,33 @@ bool do_system(const char *cmd)
         perror("System error");
         return false;
     }
-    if(ret > 0)
+    //if command is NULL, if system returns non-zero then shell is available, 0 means shell is not available
+    if(cmd == NULL)
     {
-        return false;
-    }   
-    
-    return true;
+        if(!ret)
+        {
+            printf("No Shell Available");
+            return false;
+        }
+        else
+        {
+            printf("Shell Available");
+            return true;
+        }
+    }
+    // if cmd returns non zero value then return false, else true
+    else
+    {
+        if(ret > 0)
+        {
+            return false;
+        }   
+        else
+        {
+            return true;    
+        }
+    } 
+
 }
 
 /**
