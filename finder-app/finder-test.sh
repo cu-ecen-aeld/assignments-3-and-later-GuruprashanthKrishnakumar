@@ -60,7 +60,7 @@ else
 	echo $OUTPUTSTRING > "./tmp/assignment4-result.txt"
 fi
 set +e
-${OUTPUTSTRING} | grep "${MATCHSTR}"
+echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
 	echo "success"
 	exit 0
