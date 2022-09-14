@@ -19,6 +19,7 @@
 #define DEBUG_LOG(msg,...) printf("threading: " msg "\n" , ##__VA_ARGS__)
 #define ERROR_LOG(msg,...) printf("threading ERROR: " msg "\n" , ##__VA_ARGS__)
 #define NSEC_PER_MSEC           (1000000)
+#define MSEC_PER_SEC            (1000)
 
 /*
 *   FUNCTION DEFINITIONs
@@ -104,11 +105,10 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
     }
     //populate with data from args
     thread_param->mutex = mutex;
-    thread_param->wait_before_obtain.tv_sec = 0;
-    thread_param->wait_before_obtain.tv_nsec = (wait_to_obtain_ms*NSEC_PER_MSEC);
-    thread_param->wait_before_release.tv_sec = 0;
-    thread_param->wait_before_release.tv_nsec = (wait_to_release_ms*NSEC_PER_MSEC);
-
+    thread_param->wait_before_obtain.tv_sec = (wait_to_obtain_ms/MSEC_PER_SEC);
+    thread_param->wait_before_obtain.tv_nsec = ((wait_to_obtain_ms%MSEC_PER_SEC)*NSEC_PER_MSEC);
+    thread_param->wait_before_release.tv_sec = (wait_to_release_ms/MSEC_PER_SEC);;
+    thread_param->wait_before_release.tv_nsec = ((wait_to_release_ms%MSEC_PER_SEC)*NSEC_PER_MSEC);
     //create the thread
     int ret = pthread_create(&thread_param->threadid,
                              (void*)0,
