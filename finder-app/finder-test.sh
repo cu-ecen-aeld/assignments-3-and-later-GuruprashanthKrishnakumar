@@ -52,11 +52,11 @@ done
 
 OUTPUTSTRING=$( finder.sh "$WRITEDIR" "$WRITESTR" )
 
-if [ -d "./tmp" ];
+if [ -d "/tmp" ];
 then
 	echo $OUTPUTSTRING > "/tmp/assignment4-result.txt"
 else
-	mkdir "./tmp"
+	mkdir "/tmp"
 	echo $OUTPUTSTRING > "/tmp/assignment4-result.txt"
 fi
 set +e
