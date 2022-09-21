@@ -5,7 +5,7 @@ INCLUDE_DIRS =
 LIB_DIRS = 
 # CROSS_COMPILE variable initially set to nothing. Will be over-written if value is passed in the command-line.
 CROSS_COMPILE=
-cc=gcc
+CC=gcc
 
 CDEFS=
 # Compile at O0 by default
@@ -27,9 +27,9 @@ clean:
 
 # native build if no args are passed, build for the specified target in case args are passed.
 writer: writer.o
-	$(CROSS_COMPILE)$(cc) $(LDFLAGS) $(CFLAGS) -o $@ $@.o
+	$(CROSS_COMPILE)$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o
 
 depend:
 
 .c.o:
-	$(CROSS_COMPILE)$(cc) $(CFLAGS) -c $<
+	$(CROSS_COMPILE)$(CC) $(CFLAGS) -c $<
