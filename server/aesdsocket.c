@@ -387,9 +387,10 @@ int main(int argc,char **argv)
                 perform_cleanup();
                 return -1;
             }
-            close(STDIN_FILENO);
-            close(STDOUT_FILENO);
-            close(STDERR_FILENO);
+            /* redirect fd's 0,1,2 to /dev/null */
+            open ("/dev/null", O_RDWR); /* stdin */
+            dup (0); /* stdout */
+            dup (0); /* stderror */
         }
     }
     int backlog = 10;
