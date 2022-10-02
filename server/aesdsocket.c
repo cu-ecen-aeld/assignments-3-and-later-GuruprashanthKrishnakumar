@@ -431,17 +431,17 @@ int main(int argc,char **argv)
                 socket_state.clean_socket_fd = true;
                 inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof(s));
                 printf("Accepted connection from %s\n", s);
-                socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
-                //if(strcmp(prev_ip,s)==0)
-                //{
+                //socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
+                if(strcmp(prev_ip,s)==0)
+                {
                     //printf("Matching IP. Opening in Append mode\n");
-                    //socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
-                //}
-                //else
-                //{
-                    //printf("New IP. Opening in Trunc mode\n");
-                    //socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);   
-                //}
+                    socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
+                }
+                else
+                {
+                    printf("New IP. Opening in Trunc mode\n");
+                    socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);   
+                }
                 strcpy(prev_ip,s);
                 socket_state.clean_append_fd = true;
                 socket_state.reading_data = true;
