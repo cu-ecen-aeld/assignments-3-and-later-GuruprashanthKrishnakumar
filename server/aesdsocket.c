@@ -259,7 +259,7 @@ static int echo_file_socket(int fd,int read_len)
         int str_index = 0;
         while(num_bytes_to_send>0)
         {
-            num_bytes_sent = send(socket_state.socket_file_descriptor,&write_str[str_index],ret,0);
+            num_bytes_sent = send(socket_state.socket_file_descriptor,&write_str[str_index],num_bytes_to_send,0);
             if(num_bytes_sent == -1)
             {
                 perror("Send");
