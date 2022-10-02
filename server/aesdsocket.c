@@ -388,6 +388,9 @@ int main(int argc,char **argv)
                 return -1;
             }
             /* redirect fd's 0,1,2 to /dev/null */
+            close(STDIN_FILENO);
+            close(STDOUT_FILENO);
+            close(STDERR_FILENO);
             open ("/dev/null", O_RDWR); /* stdin */
             dup (0); /* stdout */
             dup (0); /* stderror */
