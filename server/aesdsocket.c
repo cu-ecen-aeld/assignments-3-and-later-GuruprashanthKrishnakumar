@@ -24,6 +24,7 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <syslog.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -172,6 +173,7 @@ static void perform_cleanup()
     {
         free(socket_state.buf);
     }
+    closelog();
 }
 static void shutdown_function()
 {
@@ -275,6 +277,7 @@ static int echo_file_socket(int fd,int read_len)
 
 int main(int argc,char **argv)
 {
+    openlog(NULL,0,LOG_USER);
     initialize_socket_state();
     int opt;
     while((opt = getopt(argc, argv,"d")) != -1)
@@ -434,7 +437,8 @@ int main(int argc,char **argv)
                 }                    
                 socket_state.clean_socket_fd = true;
                 inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof(s));
-                printf("Accepted connection from %s\n", s);
+                syslog(LOG_DEBUG,"Accepted connection from %s\n", s);
+                //printf("Accepted connection from %s\n", s);
                 //socket_state.append_file_descriptor = open("/var/tmp/aesdsocketdata",O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
                 if(strcmp(prev_ip,s)==0)
                 {
@@ -499,7 +503,8 @@ int main(int argc,char **argv)
                     {
                         shutdown_function();
                     }
-                    printf("Closed connection from %s\n", s);
+                    //printf("Closed connection from %s\n", s);
+                    syslog(LOG_DEBUG,"Closed connection from %s\n", s);
                     socket_state.curr_state = Accept_Connections;
                 }
                 break;
