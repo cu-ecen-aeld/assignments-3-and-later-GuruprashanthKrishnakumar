@@ -10,9 +10,9 @@ CC=gcc
 CDEFS=
 # Compile at O0 by default
 CFLAGS= -O0 -g -Wall -Werror $(INCLUDE_DIRS) $(CDEFS)
-LIBS= 
+LIBS= -lpthread -lrt
 
-HFILES= 
+HFILES=queue.h
 CFILES= aesdsocket.c
 
 SRCS= ${HFILES} ${CFILES}
@@ -27,7 +27,7 @@ clean:
 
 # native build if no args are passed, build for the specified target in case args are passed.
 aesdsocket: aesdsocket.o
-	$(CROSS_COMPILE)$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o
+	$(CROSS_COMPILE)$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o $(LIBS)
 
 depend:
 
