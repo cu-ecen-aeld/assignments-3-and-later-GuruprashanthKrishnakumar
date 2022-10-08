@@ -10,7 +10,7 @@ TARGET ?= aesdsocket
 
 # Compile at O0 by default
 CFLAGS ?= -O0 -g -Wall -Werror 
-LDFLAGS ?= -lpthread -lrt
+LDFLAGS ?= -pthread -lrt
 
 HFILES =queue.h
 CFILES = $(TARGET).c
