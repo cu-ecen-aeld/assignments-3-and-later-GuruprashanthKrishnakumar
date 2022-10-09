@@ -268,7 +268,7 @@ static int create_and_arm_timer()
     status = timer_create(CLOCK_REALTIME, NULL, &socket_state.timer_1);
     if(status == -1)
     {
-        perror("Create timer");
+        syslog(LOG_ERR,"Create timer: %s",strerror(errno));
         return -1;
     }
     socket_state.itime.it_interval.tv_sec = 10;
@@ -278,7 +278,7 @@ static int create_and_arm_timer()
     status = timer_settime(socket_state.timer_1, flags, &socket_state.itime,NULL);
     if(status == -1)
     {
-        perror("Set timer");
+        syslog(LOG_ERR,"Set timer %s",strerror(errno));
         return -1;
     }
     return 0;
@@ -339,15 +339,11 @@ static void sighandler()
 static void alarmhandler()
 {
     time_t rawtime;
-    struct tm *info;
-    char time_val[40];
+    struct tm info;
     char buffer[80];
     time( &rawtime );
-
-    info = localtime( &rawtime );
-
-    strftime(time_val,40,"%Y/%m/%d - %H:%M:%S", info);
-    sprintf(buffer,"timestamp: %s \n",time_val);
+    localtime_r( &rawtime,&info );
+    sprintf(buffer,"timestamp: %d/%02d/%02d - %02d:%02d:%02d\n",(info.tm_year + 1900),(info.tm_mon + 1),info.tm_mday,info.tm_hour,info.tm_min,info.tm_sec);
     enqueue_data_into_circ_buf(buffer);
     
 }
@@ -377,7 +373,7 @@ static int dump_content(int fd, char* string,int write_len)
                 continue;
             }
             //printf("Write len %d\n",write_len);
-            perror("Error Write");
+            syslog(LOG_ERR,"Write: %s",strerror(errno));
             return -1;
         }
         write_len -= ret;
@@ -404,7 +400,7 @@ static int echo_file_socket(int fd, int socket_fd)
                 continue;
             }
             //printf("Read Len %d\n",read_len);
-            perror("Read");
+            syslog(LOG_ERR,"Read: %s",strerror(errno));
             return -1;
         }
         int num_bytes_to_send = ret;
@@ -415,7 +411,7 @@ static int echo_file_socket(int fd, int socket_fd)
             num_bytes_sent = send(socket_fd,&write_str[str_index],num_bytes_to_send,0);
             if(num_bytes_sent == -1)
             {
-                perror("Send");
+                syslog(LOG_ERR,"Send: %s",strerror(errno));
                 return -1;
             }
             num_bytes_to_send -= num_bytes_sent;
@@ -470,7 +466,7 @@ static void* server_thread(void* thread_param)
                 num_bytes_read = recv(thread_params->socket_file_descriptor,(buf+buf_len),(buf_cap - buf_len),0);
                 if(num_bytes_read == -1)
                 {
-                    perror("Recv");
+                    syslog(LOG_ERR,"Recv: %s",strerror(errno));
                     //buf has to be freed
                     //socket_file_descriptor needs to be freed.
                     //completion boolean has to be set
@@ -501,13 +497,18 @@ static void* server_thread(void* thread_param)
                         status = pthread_mutex_lock(&socket_state.mutex);
                         if(status != 0)
                         {
+                            syslog(LOG_ERR,"Mutex Lock: %s",strerror(errno));
                             //buf has to be freed
                             //socket_file_descriptor needs to be freed.
                             //completion boolean has to be set
-                            perror("Mutex Lock");
                             goto free_mem;
                         }
                         file_descriptor = open(LOG_FILE,O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
+                        if(file_descriptor == -1)
+                        {
+                            syslog(LOG_ERR,"Open: %s",strerror(errno));
+                            goto unlock_mutex;
+                        }
                         //printf("Temp var read %d\n",temp_read_var);
                         int bytes_written_until_newline = (num_bytes_to_read - temp_read_var);
                         //printf("Total buffsize %d buf len %d bytes written until newline %d \n",buf_cap,buf_len,bytes_written_until_newline);
@@ -549,7 +550,7 @@ static void* server_thread(void* thread_param)
                         status = pthread_mutex_unlock(&socket_state.mutex);
                         if(status != 0)
                         {
-                            perror("Mutex Unlock");
+                            syslog(LOG_ERR,"Mutex Unlock: %s",strerror(errno));
                             goto unlock_mutex;
                         }
                         break;
@@ -605,7 +606,7 @@ int main(int argc,char **argv)
     status = getaddrinfo(NULL, "9000", &hints, &socket_state.host_addr_info);
     if(status != 0)
     {
-        perror("GetAddrInfo");
+        syslog(LOG_ERR,"getaddrinfo: %s",strerror(errno));
         return -1;
 
     }
@@ -618,28 +619,29 @@ int main(int argc,char **argv)
         socket_state.socket_descriptor = socket(p->ai_family, p->ai_socktype,p->ai_protocol);
         if(socket_state.socket_descriptor == -1)
         {
-            perror("Socket");
+            syslog(LOG_ERR,"Socket: %s",strerror(errno));
             continue;
         }
         socket_state.free_socket_descriptor = true;
         status = setsockopt(socket_state.socket_descriptor,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes));
         if(status == -1)
         {
-            perror("Failed to set socket options"); 
+            syslog(LOG_ERR,"Set Socket Options: %s",strerror(errno)); 
             perform_cleanup();
             return -1;
         }
         status = bind(socket_state.socket_descriptor,p->ai_addr, p->ai_addrlen);
         if(status == -1)
         {
+            syslog(LOG_ERR,"Bind: %s",strerror(errno));
             close(socket_state.socket_descriptor);
-            perror("server: bind");
             continue;
         }
         break;
     }
     if(p == NULL)
     {
+        syslog(LOG_ERR,"server: failed to bind");
         fprintf(stderr, "server: failed to bind\n");
         perform_cleanup();
         return -1;
@@ -658,7 +660,7 @@ int main(int argc,char **argv)
         pid = fork ();
         if (pid == -1)
         {
-            perror("Fork");
+            syslog(LOG_ERR,"Fork: %s",strerror(errno));
             perform_cleanup();
             return -1;
         }
@@ -671,13 +673,13 @@ int main(int argc,char **argv)
         {
             if(setsid()==-1)
             {
-                perror("Session");
+                syslog(LOG_ERR,"SetSid: %s",strerror(errno));
                 perform_cleanup();
                 return -1;
             }
             if(chdir("/")==-1)
             {
-                perror("Changing directory");
+                syslog(LOG_ERR,"Chdir: %s",strerror(errno));;
                 perform_cleanup();
                 return -1;
             }
@@ -695,7 +697,7 @@ int main(int argc,char **argv)
     status = listen(socket_state.socket_descriptor,backlog);
     if(status == -1)
     {
-        perror("Listen");
+        syslog(LOG_ERR,"Listen: %s",strerror(errno));
         perform_cleanup();
         return -1;
     }
@@ -762,11 +764,10 @@ int main(int argc,char **argv)
                         printf("EINTR\n");
                         goto next_state;
                     }
-                    perror("Error Accepting Connection");
+                    syslog(LOG_ERR,"Accept: %s",strerror(errno));
                     goto next_state;
                 }                    
                 inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof(s));
-                syslog(LOG_DEBUG,"Accepted connection from %s\n", s);
                 worker_thread_t *node = NULL;
                 node = malloc(sizeof(worker_thread_t));
                 if(!node)
@@ -784,8 +785,8 @@ int main(int argc,char **argv)
                              node);
                 if(status !=0)
                 {
+                    syslog(LOG_ERR,"Listen: %s",strerror(errno));
                     free(node);
-                    perror("Pthread Create");
                     goto next_state;
                 }   
                 TAILQ_INSERT_TAIL(&head, node, entries);
@@ -814,21 +815,20 @@ int main(int argc,char **argv)
                 }
                 if(socket_state.connection_count==0)
                 {
-                    char time_val_buf[80];
-                    if(dequeue_data_from_circ_buf(time_val_buf)==0)
+                    status = pthread_mutex_trylock(&socket_state.mutex);
+                    if(status == 0)
                     {
-                        status = pthread_mutex_trylock(&socket_state.mutex);
-                        if(status == 0)
+                        char time_val_buf[80];
+                        if(dequeue_data_from_circ_buf(time_val_buf)==0)
                         {
                             int fd = open(LOG_FILE,O_WRONLY|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
                             if(fd != -1)
                             {
-                                printf("File desc %d\n",fd);
                                 dump_content(fd,time_val_buf,strlen(time_val_buf));
                                 close(fd);
                             }
-                            pthread_mutex_unlock(&socket_state.mutex);
                         }
+                        pthread_mutex_unlock(&socket_state.mutex);
                     }
                 }
                 if(socket_state.signal_caught)
