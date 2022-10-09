@@ -53,8 +53,6 @@ typedef enum
     Parse_data,
 }worker_threads_states_t;
 
-
-
 struct worker_thread_s
 {
     pthread_t thread_id;
@@ -114,12 +112,47 @@ circular_buf_metadata_t circular_buf;
 */
 static void perform_cleanup();
 
+
+/*
+*   Initializes circular buffer used for storing timestamps
+*
+*   Args:
+*       None
+*   Params:
+*       None
+*/
 static void initialize_circular_buf();
 
+/*
+*   Create an interval timer and arm it to expire every 10s.
+*
+*   Args:
+*       None
+*   Params:
+*       None
+*/
 static int create_and_arm_timer();
 
+
+/*
+*   Setup signal handler for the signal number passed 
+*
+*   Args:
+*       signo - signal number for which handler needs to be set up for 
+*   Params:
+*       0 if successful, -1 if failed 
+*/
 static int setup_signal(int signo);
 
+
+/*
+*   Disarm the timer and close it.
+*
+*   Args:
+*       none
+*   Params:
+*       none 
+*/
 static void disarm_and_destroy_timer();
 
 /*
@@ -132,6 +165,15 @@ static void disarm_and_destroy_timer();
 *       None
 */
 static void sighandler();
+
+/*
+*   Signal handler for SIGINT and SIGTERM. Enqueue timestamp into circular buffer.
+*
+*   Args:
+*       None
+*   Params:
+*       None
+*/
 static void alarmhandler();
 /*
 *   Returns the IP address present in the socket address data structure passed.
@@ -176,11 +218,49 @@ static int echo_file_socket(int fd, int socket_fd);
 */
 static void initialize_socket_state();
 
+
+/*
+*   Enqueues timestamp into circular buffer.
+*
+*   Args:
+*       data - data to be enqueued
+*   Params:
+*       success/failure
+*/
 static int enqueue_data_into_circ_buf(char* data);
 
+
+
+/*
+*   Dequeues timestamp from circular buffer.
+*
+*   Args:
+*       data - buffer to store dequeued timestamp
+*   Params:
+*       success/failure
+*/
 static int dequeue_data_from_circ_buf(char* buf); 
 
+
+/*
+*   Thread-per-connection. Reads off a socket descriptor until recv
+*   returns 0 and dumps when \n is encountered.
+*
+*   Args:
+*       data - buffer to store dequeued timestamp
+*   Params:
+*       success/failure
+*/
 static void* server_thread(void* thread_param);
+
+/*
+*   Return the next pointer of read/write pointer passed while handling wraparound
+*
+*   Args:
+*       ptr - pointer for which nextptr needs to be calculated
+*   Params:
+*       nextptr
+*/
 static uint32_t nextPtr(uint32_t ptr);
 
 /*
@@ -194,6 +274,15 @@ static uint32_t nextPtr(uint32_t ptr) {
   return ((ptr+1)&(CIRCULAR_BUF_DEPTH - 1));
 
 } // nextPtr()
+
+/*
+*    Note on Circular buffer: 
+*                The circular buffer is not reentrant. The enqueue and dequeue functions do not 
+*                modify the same variables and hence calls to enqueue from within dequeue will not
+*                cause race conditions. However, a call to enqueue from within enqueue will cause over-writes (similarly for dequeue it might cause skips)
+*                This circular buffer implementation works as long as there is one producer and one consumer (as is the case with this program, alarmhandler
+*                is the producer and the whatever writes to the file is the consumer)
+*/
 static int enqueue_data_into_circ_buf(char* data)
 {
   if(circular_buf.queue_full)
@@ -336,6 +425,11 @@ static void sighandler()
     socket_state.signal_caught = true;
 }
 
+/*
+*   Functions time() and localtime_r are reentrant and hence are safe to call from signal handler.
+*   strftime() has not been called since it is not reentrant.
+*   Limitations of circular buffer have been documented above.
+*/
 static void alarmhandler()
 {
     time_t rawtime;
@@ -567,9 +661,14 @@ static void* server_thread(void* thread_param)
     free_socket_fd: close(thread_params->socket_file_descriptor);
                     thread_params->thread_completed = true;
                     syslog(LOG_DEBUG,"Closed connection from %s",thread_params->ip_addr);
-                    pthread_exit(NULL);
+                    return 0;
 }
 
+/*
+*   Writing the timestamp back to file is done from the main thread if there are no open connections,
+*   otherwise it is done from the threads itself. This is to avoid skipping timestamps if the 
+*   traffic is busy. 
+*/
 int main(int argc,char **argv)
 {
     initialize_socket_state();
@@ -815,6 +914,7 @@ int main(int argc,char **argv)
                 }
                 if(socket_state.connection_count==0)
                 {
+                    //trylock instead of lock to prevent race conditions ending up in a deadlock.
                     status = pthread_mutex_trylock(&socket_state.mutex);
                     if(status == 0)
                     {
