@@ -408,6 +408,7 @@ static void perform_cleanup()
     {
         disarm_and_destroy_timer();
     }
+    pthread_mutex_destroy(&socket_state.mutex);
     //Disarm Alarm
     closelog();
 }
