@@ -2,18 +2,19 @@
  * @file aesd-circular-buffer.c
  * @brief Functions and data related to a circular buffer imlementation
  *
- * @author Dan Walkes
- * @date 2020-03-01
+ * @author Dan Walkes, updated by Guruprashanth Krishnakumar
+ * @date 2020-03-01, updated on 10/11/2022
  * @copyright Copyright (c) 2020
  *
  */
 
 #ifdef __KERNEL__
 #include <linux/string.h>
+
 #else
 #include <string.h>
 #endif
-
+#include <stdio.h>
 #include "aesd-circular-buffer.h"
 
 /**
@@ -32,6 +33,39 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     /**
     * TODO: implement per description
     */
+    //Check for invalid inputs
+    if(!buffer || !entry_offset_byte_rtn)
+    {
+        return NULL;
+    }
+    //incremental total size of all the buffers traversed
+    int total_size = 0;
+    //iterate a maximum times of num_bufs_iterated = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED
+    int num_bufs_iterated;
+    //starting index should point to buffer->out_offs
+    int buf_idx ;
+    for(num_bufs_iterated =0,buf_idx =buffer->out_offs;
+            num_bufs_iterated<AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+            buf_idx = ((buf_idx + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED),num_bufs_iterated++)
+            {
+                //get the aesd_buffer_entry address, if size of data in that = 0, assume enough data not 
+                //present since circular buf initialized with memset.
+                struct aesd_buffer_entry *entry = &(buffer->entry[buf_idx]);
+                if(entry->size == 0)
+                {
+                    return NULL;
+                }
+                //if char offset within current buffer, return current buffer along with the relative 
+                //offset within the buffer.
+                if((total_size + entry->size -1) >= char_offset)
+                {
+                    
+                    *entry_offset_byte_rtn = (char_offset - total_size);
+                    return entry;
+                }
+                //continue incremening total size otherwise
+                total_size += entry->size;
+            } 
     return NULL;
 }
 
@@ -47,6 +81,29 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     /**
     * TODO: implement per description
     */
+    //check for invalid arguments
+    if(!buffer || !add_entry)
+    {
+        return;
+    }
+    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size = add_entry->size;
+    //Condition 1 checked in case the reader did not update queue->full flag after reading from a full queue.
+    //Condition 2 checked to avoid incrementing out_offs at the initial state
+    if(buffer->in_offs == buffer->out_offs && buffer->full)
+    {
+        buffer->out_offs = ((buffer->out_offs + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
+    }
+    buffer->in_offs = ((buffer->in_offs + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
+    //check if queue full, otherwise update the flag to false (for safety).
+    if(buffer->in_offs == buffer->out_offs)
+    {
+        buffer->full = true;
+    }
+    else
+    {
+        buffer->full = false;
+    }
 }
 
 /**

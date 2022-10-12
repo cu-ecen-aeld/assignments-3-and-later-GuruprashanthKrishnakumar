@@ -905,8 +905,8 @@ int main(int argc,char **argv)
                     {
                         if(var->thread_completed)
                         {
-                            TAILQ_REMOVE(&head, var, entries);
                             pthread_join(var->thread_id,NULL);
+                            TAILQ_REMOVE(&head, var, entries);
                             free(var);
                             var = NULL;
                             socket_state.connection_count--;
