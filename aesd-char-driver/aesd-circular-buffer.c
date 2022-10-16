@@ -86,14 +86,14 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     {
         return;
     }
-    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
-    buffer->entry[buffer->in_offs].size = add_entry->size;
     //Condition 1 checked in case the reader did not update queue->full flag after reading from a full queue.
     //Condition 2 checked to avoid incrementing out_offs at the initial state
     if(buffer->in_offs == buffer->out_offs && buffer->full)
     {
         buffer->out_offs = ((buffer->out_offs + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
     }
+    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size = add_entry->size;
     buffer->in_offs = ((buffer->in_offs + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
     //check if queue full, otherwise update the flag to false (for safety).
     if(buffer->in_offs == buffer->out_offs)
