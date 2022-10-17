@@ -1,18 +1,20 @@
 ## Analysis of oops message
 Error message specifies that NULL pointer deference caused the fault. The address (0000000000000000) is also a clue.
+
 	Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000
+	
 The below lines specify the state of register at th tine of fault
-	Mem abort info:
-	  ESR = 0x96000045
-	  EC = 0x25: DABT (current EL), IL = 32 bits
-	  SET = 0, FnV = 0
-	  EA = 0, S1PTW = 0
-	  FSC = 0x05: level 1 translation fault
-	Data abort info:
-	  ISV = 0, ISS = 0x00000045
-	  CM = 0, WnR = 1
-	user pgtable: 4k pages, 39-bit VAs, pgdp=0000000042085000
-	[0000000000000000] pgd=0000000000000000, p4d=0000000000000000, pud=0000000000000000
+>	Mem abort info:
+>	  ESR = 0x96000045
+>	  EC = 0x25: DABT (current EL), IL = 32 bits
+>	  SET = 0, FnV = 0
+>	  EA = 0, S1PTW = 0
+>	  FSC = 0x05: level 1 translation fault
+>	Data abort info:
+>	  ISV = 0, ISS = 0x00000045
+>	  CM = 0, WnR = 1
+>	user pgtable: 4k pages, 39-bit VAs, pgdp=0000000042085000
+>	[0000000000000000] pgd=0000000000000000, p4d=0000000000000000, pud=0000000000000000
 The error that occurred Oops with the error code 96000045. The [#1] specifies that the error occurred once.
 	Internal error: Oops: 96000045 [#1] SMP
 	Modules linked in: hello(O) scull(O) faulty(O)
@@ -25,17 +27,17 @@ Shows the location of the program counter. It was at location 0x14 (relative to 
 Link register is used to store the return value. vfs_write could be the function that called this function. 
 	lr : vfs_write+0xa8/0x2b0
 the stack pointer was pointing to a kernel space address. The stack is specified below. Addresses below 0xc0000000 are from user space, hence the recurring address 0000005580292a70 could point to the user space buffer passed in.
-	sp : ffffffc008d23d80
-	x29: ffffffc008d23d80 x28: ffffff80020d8000 x27: 0000000000000000
-	x26: 0000000000000000 x25: 0000000000000000 x24: 0000000000000000
-	x23: 0000000040001000 x22: 0000000000000012 x21: 0000005580292a70
-	x20: 0000005580292a70 x19: ffffff8002087000 x18: 0000000000000000
-	x17: 0000000000000000 x16: 0000000000000000 x15: 0000000000000000
-	x14: 0000000000000000 x13: 0000000000000000 x12: 0000000000000000
-	x11: 0000000000000000 x10: 0000000000000000 x9 : 0000000000000000
-	x8 : 0000000000000000 x7 : 0000000000000000 x6 : 0000000000000000
-	x5 : 0000000000000001 x4 : ffffffc0006f0000 x3 : ffffffc008d23df0
-	x2 : 0000000000000012 x1 : 0000000000000000 x0 : 0000000000000000
+>	sp : ffffffc008d23d80
+>	x29: ffffffc008d23d80 x28: ffffff80020d8000 x27: 0000000000000000
+>	x26: 0000000000000000 x25: 0000000000000000 x24: 0000000000000000
+>	x23: 0000000040001000 x22: 0000000000000012 x21: 0000005580292a70
+>	x20: 0000005580292a70 x19: ffffff8002087000 x18: 0000000000000000
+>	x17: 0000000000000000 x16: 0000000000000000 x15: 0000000000000000
+>	x14: 0000000000000000 x13: 0000000000000000 x12: 0000000000000000
+>	x11: 0000000000000000 x10: 0000000000000000 x9 : 0000000000000000
+>	x8 : 0000000000000000 x7 : 0000000000000000 x6 : 0000000000000000
+>	x5 : 0000000000000001 x4 : ffffffc0006f0000 x3 : ffffffc008d23df0
+>	x2 : 0000000000000012 x1 : 0000000000000000 x0 : 0000000000000000
 The call trace, beggining from the call by faulty_write at 0x14 which caused the issue is detailed below. Can be useful for finding the rootcause of the rror 
 	Call trace:
 	 faulty_write+0x14/0x20 [faulty]
