@@ -4,17 +4,19 @@ Error message specifies that NULL pointer deference caused the fault. The addres
 	Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000
 	
 The below lines specify the state of register at th tine of fault
->	Mem abort info:
->	  ESR = 0x96000045
->	  EC = 0x25: DABT (current EL), IL = 32 bits
->	  SET = 0, FnV = 0
->	  EA = 0, S1PTW = 0
->	  FSC = 0x05: level 1 translation fault
->	Data abort info:
->	  ISV = 0, ISS = 0x00000045
->	  CM = 0, WnR = 1
->	user pgtable: 4k pages, 39-bit VAs, pgdp=0000000042085000
->	[0000000000000000] pgd=0000000000000000, p4d=0000000000000000, pud=0000000000000000
+
+	Mem abort info:
+	  ESR = 0x96000045
+	  EC = 0x25: DABT (current EL), IL = 32 bits
+	  SET = 0, FnV = 0
+	  EA = 0, S1PTW = 0
+	  FSC = 0x05: level 1 translation fault
+	Data abort info:
+	  ISV = 0, ISS = 0x00000045
+	  CM = 0, WnR = 1
+	user pgtable: 4k pages, 39-bit VAs, pgdp=0000000042085000
+	[0000000000000000] pgd=0000000000000000, p4d=0000000000000000, pud=0000000000000000
+
 The error that occurred Oops with the error code 96000045. The [#1] specifies that the error occurred once.
 	Internal error: Oops: 96000045 [#1] SMP
 	Modules linked in: hello(O) scull(O) faulty(O)
