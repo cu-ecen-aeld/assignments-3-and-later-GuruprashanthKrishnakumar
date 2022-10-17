@@ -18,17 +18,26 @@ The below lines specify the state of register at th tine of fault
 	[0000000000000000] pgd=0000000000000000, p4d=0000000000000000, pud=0000000000000000
 
 The error that occurred Oops with the error code 96000045. The [#1] specifies that the error occurred once.
+
 	Internal error: Oops: 96000045 [#1] SMP
 	Modules linked in: hello(O) scull(O) faulty(O)
+	
 Shows CPU number, the process ID where the error occured as well as the command that triggered the error. Tainted G specifies that the module was proprietory (probably because of GPL license) 
+
 	CPU: 0 PID: 158 Comm: sh Tainted: G           O      5.15.18 #1
 	Hardware name: linux,dummy-virt (DT)
 	pstate: 80000005 (Nzcv daif -PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+	
 Shows the location of the program counter. It was at location 0x14 (relative to start of the function). The [faulty] specifies the module that caused the fault.
+
 	pc : faulty_write+0x14/0x20 [faulty]
+	
 Link register is used to store the return value. vfs_write could be the function that called this function. 
+
 	lr : vfs_write+0xa8/0x2b0
+	
 the stack pointer was pointing to a kernel space address. The stack is specified below. Addresses below 0xc0000000 are from user space, hence the recurring address 0000005580292a70 could point to the user space buffer passed in.
+
 >	sp : ffffffc008d23d80
 >	x29: ffffffc008d23d80 x28: ffffff80020d8000 x27: 0000000000000000
 >	x26: 0000000000000000 x25: 0000000000000000 x24: 0000000000000000
@@ -40,7 +49,9 @@ the stack pointer was pointing to a kernel space address. The stack is specified
 >	x8 : 0000000000000000 x7 : 0000000000000000 x6 : 0000000000000000
 >	x5 : 0000000000000001 x4 : ffffffc0006f0000 x3 : ffffffc008d23df0
 >	x2 : 0000000000000012 x1 : 0000000000000000 x0 : 0000000000000000
-The call trace, beggining from the call by faulty_write at 0x14 which caused the issue is detailed below. Can be useful for finding the rootcause of the rror 
+
+The call trace, beggining from the call by faulty_write at 0x14 which caused the issue is detailed below. Can be useful for finding the rootcause of the error 
+
 	Call trace:
 	 faulty_write+0x14/0x20 [faulty]
 	 ksys_write+0x68/0x100
@@ -54,7 +65,9 @@ The call trace, beggining from the call by faulty_write at 0x14 which caused the
 	Code: d2800001 d2800000 d503233f d50323bf (b900003f) 
 	---[ end trace 3d7ddda4c9111df2 ]---
 	
+	
 By looking at the dissassembly of the faulty.ko module using objdump, we can find the dissasembly of the faulty_write function:
+
 	faulty.ko:     file format elf64-littleaarch64
 	Disassembly of section .text:
 	0000000000000000 <faulty_write>:
@@ -66,4 +79,5 @@ By looking at the dissassembly of the faulty.ko module using objdump, we can fin
 	  14:	b900003f 	str	wzr, [x1]
 	  18:	d65f03c0 	ret
   	1c:	d503201f 	nop
+  	
 We can see that at the address 0x14, a store instruction is executed which stores the value in register wzr to the location pointed by [x1] which is #0x0 which does not map to a valid address in physical space and hence caused the fault.
