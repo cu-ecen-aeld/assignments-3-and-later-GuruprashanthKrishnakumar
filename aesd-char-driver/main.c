@@ -119,6 +119,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     bytes_to_eob = (ret_buf->size - relative_byte_offset);
     bytes_to_copy = bytes_to_eob<count?bytes_to_eob:count;
     *f_pos += bytes_to_copy;
+    PDEBUG("Returng %s\n",ret_buf->buffptr);
     if (copy_to_user(buf, (ret_buf->buffptr + relative_byte_offset), bytes_to_copy)) 
     {
 		retval = -EFAULT;
