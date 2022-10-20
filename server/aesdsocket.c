@@ -36,8 +36,8 @@
 *   MACROS
 */
 #define BUF_SIZE_UNIT           (1024)
-#define LOG_FILE                ("/var/tmp/aesdsocketdata")
-#define CIRCULAR_BUF_DEPTH      (8)
+#define LOG_FILE                ("/dev/aesdchar")
+
 /*
 *   GLOBALS
 */
@@ -70,32 +70,12 @@ typedef struct
     bool signal_caught;
     bool free_address_info;
     bool free_socket_descriptor;
-    bool disarm_alarm;
     struct addrinfo *host_addr_info;
     int socket_descriptor;
-    pthread_mutex_t mutex;
     int connection_count;
-    timer_t timer_1;
-    struct itimerspec itime;
 }socket_state_t;
 
 socket_state_t socket_state;
-
-typedef struct
-{
-    char time_string[100];
-}circular_buf_data_t;
-
-typedef struct
-{
-    uint32_t wptr;
-    uint32_t rptr;
-    bool queue_empty;
-    bool queue_full;
-    circular_buf_data_t time_buf[CIRCULAR_BUF_DEPTH];
-}circular_buf_metadata_t;
-
-circular_buf_metadata_t circular_buf;
 
 /*
 *   STATIC FUNCTION PROTOTYPES
@@ -112,28 +92,6 @@ circular_buf_metadata_t circular_buf;
 */
 static void perform_cleanup();
 
-
-/*
-*   Initializes circular buffer used for storing timestamps
-*
-*   Args:
-*       None
-*   Params:
-*       None
-*/
-static void initialize_circular_buf();
-
-/*
-*   Create an interval timer and arm it to expire every 10s.
-*
-*   Args:
-*       None
-*   Params:
-*       None
-*/
-static int create_and_arm_timer();
-
-
 /*
 *   Setup signal handler for the signal number passed 
 *
@@ -143,17 +101,6 @@ static int create_and_arm_timer();
 *       0 if successful, -1 if failed 
 */
 static int setup_signal(int signo);
-
-
-/*
-*   Disarm the timer and close it.
-*
-*   Args:
-*       none
-*   Params:
-*       none 
-*/
-static void disarm_and_destroy_timer();
 
 /*
 *   Signal handler for SIGINT and SIGTERM. If any open connection is on-going on the socket,
@@ -166,15 +113,6 @@ static void disarm_and_destroy_timer();
 */
 static void sighandler();
 
-/*
-*   Signal handler for SIGINT and SIGTERM. Enqueue timestamp into circular buffer.
-*
-*   Args:
-*       None
-*   Params:
-*       None
-*/
-static void alarmhandler();
 /*
 *   Returns the IP address present in the socket address data structure passed.
 *
@@ -220,29 +158,6 @@ static void initialize_socket_state();
 
 
 /*
-*   Enqueues timestamp into circular buffer.
-*
-*   Args:
-*       data - data to be enqueued
-*   Params:
-*       success/failure
-*/
-static int enqueue_data_into_circ_buf(char* data);
-
-
-
-/*
-*   Dequeues timestamp from circular buffer.
-*
-*   Args:
-*       data - buffer to store dequeued timestamp
-*   Params:
-*       success/failure
-*/
-static int dequeue_data_from_circ_buf(char* buf); 
-
-
-/*
 *   Thread-per-connection. Reads off a socket descriptor until recv
 *   returns 0 and dumps when \n is encountered.
 *
@@ -254,66 +169,8 @@ static int dequeue_data_from_circ_buf(char* buf);
 static void* server_thread(void* thread_param);
 
 /*
-*   Return the next pointer of read/write pointer passed while handling wraparound
-*
-*   Args:
-*       ptr - pointer for which nextptr needs to be calculated
-*   Params:
-*       nextptr
-*/
-static uint32_t nextPtr(uint32_t ptr);
-
-/*
 *   FUNCTION DEFINITIONS
 */
-
-static uint32_t nextPtr(uint32_t ptr) {
-
-  // Student edit:
-  // Create this function
-  return ((ptr+1)&(CIRCULAR_BUF_DEPTH - 1));
-
-} // nextPtr()
-
-/*
-*    Note on Circular buffer: 
-*                The circular buffer is not reentrant. The enqueue and dequeue functions do not 
-*                modify the same variables and hence calls to enqueue from within dequeue will not
-*                cause race conditions. However, a call to enqueue from within enqueue will cause over-writes (similarly for dequeue it might cause skips)
-*                This circular buffer implementation works as long as there is one producer and one consumer (as is the case with this program, alarmhandler
-*                is the producer and the whatever writes to the file is the consumer)
-*/
-static int enqueue_data_into_circ_buf(char* data)
-{
-  if(circular_buf.queue_full)
-  {
-    return -1;
-  }
-  strncpy(circular_buf.time_buf[circular_buf.wptr].time_string,data,80);
-  circular_buf.wptr = nextPtr(circular_buf.wptr);
-  circular_buf.queue_empty = false;
-  if(circular_buf.wptr == circular_buf.rptr)
-  {
-    circular_buf.queue_full = true;
-  }
-  return 0;
-}
-
-static int dequeue_data_from_circ_buf(char* buf)
-{
-  if(circular_buf.queue_empty)
-  {
-    return -1;
-  }
-  strncpy(buf,circular_buf.time_buf[circular_buf.rptr].time_string,80);
-  circular_buf.rptr = nextPtr(circular_buf.rptr);
-  circular_buf.queue_full = false;
-  if(circular_buf.wptr == circular_buf.rptr)
-  {
-    circular_buf.queue_empty = true;
-  }
-  return 0;
-}
 
 static int setup_signal(int signo)
 {
@@ -321,10 +178,6 @@ static int setup_signal(int signo)
     if(signo == SIGINT || signo == SIGTERM)
     {
         action.sa_handler = sighandler;
-    }
-    else if(signo == SIGALRM)
-    {
-        action.sa_handler = alarmhandler;
     }
     action.sa_flags = 0;
     sigset_t empty;
@@ -342,56 +195,13 @@ static int setup_signal(int signo)
     return 0;
 }
 
-static void initialize_circular_buf()
-{
-    circular_buf.wptr = 0;
-    circular_buf.rptr = 0;
-    circular_buf.queue_full = false;
-    circular_buf.queue_empty = true;
-}
-
-static int create_and_arm_timer()
-{
-    int flags = 0;
-    int status = 0;
-    status = timer_create(CLOCK_REALTIME, NULL, &socket_state.timer_1);
-    if(status == -1)
-    {
-        syslog(LOG_ERR,"Create timer: %s",strerror(errno));
-        return -1;
-    }
-    socket_state.itime.it_interval.tv_sec = 10;
-    socket_state.itime.it_interval.tv_nsec = 0;
-    socket_state.itime.it_value.tv_sec = 10;
-    socket_state.itime.it_value.tv_nsec = 0;
-    status = timer_settime(socket_state.timer_1, flags, &socket_state.itime,NULL);
-    if(status == -1)
-    {
-        syslog(LOG_ERR,"Set timer %s",strerror(errno));
-        return -1;
-    }
-    return 0;
-}
-
-static void disarm_and_destroy_timer()
-{
-    int flags = 0;
-    socket_state.itime.it_interval.tv_sec = 0;
-    socket_state.itime.it_interval.tv_nsec = 0;
-    socket_state.itime.it_value.tv_sec = 0;
-    socket_state.itime.it_value.tv_nsec = 0;
-    timer_settime(socket_state.timer_1, flags, &socket_state.itime,NULL);
-    timer_delete(socket_state.timer_1);
-}
 static void initialize_socket_state()
 {
 
     socket_state.free_address_info = false;
     socket_state.free_socket_descriptor = false;
     socket_state.signal_caught = false;
-    socket_state.disarm_alarm = false;
     socket_state.host_addr_info = NULL;
-    pthread_mutex_init(&socket_state.mutex, NULL);
     socket_state.connection_count = 0;
 }
 static void perform_cleanup()
@@ -404,11 +214,6 @@ static void perform_cleanup()
     {
         close(socket_state.socket_descriptor);
     }
-    if(socket_state.disarm_alarm)
-    {
-        disarm_and_destroy_timer();
-    }
-    pthread_mutex_destroy(&socket_state.mutex);
     //Disarm Alarm
     closelog();
 }
@@ -417,7 +222,6 @@ static void shutdown_function()
     printf("\nCaught Signal. Exiting\n");
     perform_cleanup();
     printf("Deleting file\n");
-    unlink("/var/tmp/aesdsocketdata");
     exit(1);
 }
 
@@ -426,22 +230,7 @@ static void sighandler()
     socket_state.signal_caught = true;
 }
 
-/*
-*   Functions time() and localtime_r are reentrant and hence are safe to call from signal handler.
-*   strftime() has not been called since it is not reentrant.
-*   Limitations of circular buffer have been documented above.
-*/
-static void alarmhandler()
-{
-    time_t rawtime;
-    struct tm info;
-    char buffer[80];
-    time( &rawtime );
-    localtime_r( &rawtime,&info );
-    sprintf(buffer,"timestamp: %d/%02d/%02d - %02d:%02d:%02d\n",(info.tm_year + 1900),(info.tm_mon + 1),info.tm_mday,info.tm_hour,info.tm_min,info.tm_sec);
-    enqueue_data_into_circ_buf(buffer);
-    
-}
+
 static void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
@@ -519,7 +308,7 @@ static int echo_file_socket(int fd, int socket_fd)
 static void* server_thread(void* thread_param)
 {
     worker_thread_t *thread_params = (worker_thread_t *)thread_param;
-    int file_descriptor,num_bytes_read = 0,start_ptr = 0,num_bytes_to_read=0,buf_len=0,buf_cap=0,status=0;
+    int file_descriptor,num_bytes_read = 0,start_ptr = 0,num_bytes_to_read=0,buf_len=0,buf_cap=0;
     char *ptr,*buf;
     while(1)
     {
@@ -589,20 +378,11 @@ static void* server_thread(void* thread_param)
                     if(*ptr == '\n')
                     {
                         temp_read_var--;
-                        status = pthread_mutex_lock(&socket_state.mutex);
-                        if(status != 0)
-                        {
-                            syslog(LOG_ERR,"Mutex Lock: %s",strerror(errno));
-                            //buf has to be freed
-                            //socket_file_descriptor needs to be freed.
-                            //completion boolean has to be set
-                            goto free_mem;
-                        }
                         file_descriptor = open(LOG_FILE,O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
                         if(file_descriptor == -1)
                         {
                             syslog(LOG_ERR,"Open: %s",strerror(errno));
-                            goto unlock_mutex;
+                            goto free_mem;
                         }
                         //printf("Temp var read %d\n",temp_read_var);
                         int bytes_written_until_newline = (num_bytes_to_read - temp_read_var);
@@ -630,24 +410,8 @@ static void* server_thread(void* thread_param)
                             //perform cleanup and exit, but this time unlock first
                             goto close_file_descriptor;
                         }
-                        char time_buf_string[80];
-                    
-                        if(dequeue_data_from_circ_buf(time_buf_string)==0)
-                        {
-                            if(dump_content(file_descriptor,time_buf_string,strlen(time_buf_string))!=-1)
-                            {
-                                printf("wrote from thread\n");
-                                bytes_written_until_newline += strlen(time_buf_string);
-                            }
-                        }
                         start_ptr = bytes_written_until_newline;
                         close(file_descriptor);
-                        status = pthread_mutex_unlock(&socket_state.mutex);
-                        if(status != 0)
-                        {
-                            syslog(LOG_ERR,"Mutex Unlock: %s",strerror(errno));
-                            goto unlock_mutex;
-                        }
                         break;
                     }
                 }
@@ -657,7 +421,7 @@ static void* server_thread(void* thread_param)
         }
     }
     close_file_descriptor: close(file_descriptor);
-    unlock_mutex: pthread_mutex_unlock(&socket_state.mutex);
+    //unlock_mutex: pthread_mutex_unlock(&socket_state.mutex);
     free_mem: free(buf);
     free_socket_fd: close(thread_params->socket_file_descriptor);
                     thread_params->thread_completed = true;
@@ -673,7 +437,6 @@ static void* server_thread(void* thread_param)
 int main(int argc,char **argv)
 {
     initialize_socket_state();
-    initialize_circular_buf();
     bool run_as_daemon = false;
     main_thread_states_t main_thread_state;
     openlog(NULL,0,LOG_USER);
@@ -818,17 +581,6 @@ int main(int argc,char **argv)
         perform_cleanup();
         return -1;        
     }
-    if(setup_signal(SIGALRM)==-1)
-    {
-        perform_cleanup();
-        return -1;          
-    }
-    if(create_and_arm_timer()==-1)
-    {
-        perform_cleanup();
-        return -1;    
-    }
-    socket_state.disarm_alarm = true;
     head_t head;
     TAILQ_INIT(&head);
     //Use inside thread
@@ -911,25 +663,6 @@ int main(int argc,char **argv)
                             var = NULL;
                             socket_state.connection_count--;
                         }
-                    }
-                }
-                if(socket_state.connection_count==0)
-                {
-                    //trylock instead of lock to prevent race conditions ending up in a deadlock.
-                    status = pthread_mutex_trylock(&socket_state.mutex);
-                    if(status == 0)
-                    {
-                        char time_val_buf[80];
-                        if(dequeue_data_from_circ_buf(time_val_buf)==0)
-                        {
-                            int fd = open(LOG_FILE,O_WRONLY|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
-                            if(fd != -1)
-                            {
-                                dump_content(fd,time_val_buf,strlen(time_val_buf));
-                                close(fd);
-                            }
-                        }
-                        pthread_mutex_unlock(&socket_state.mutex);
                     }
                 }
                 if(socket_state.signal_caught)
