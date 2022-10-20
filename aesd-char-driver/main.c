@@ -30,15 +30,16 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
 
-static int allocate_memory(struct aesd_buffer_entry *ptr, int size);
+static int allocate_memory(struct working_buffer *ptr, int size);
 
-static int allocate_memory(struct aesd_buffer_entry *ptr, int size)
+static int allocate_memory(struct working_buffer *ptr, int size)
 {
     int retval = 0;
+    char *temp_ptr;
     if(ptr->size == 0)
     {
-        ptr->buffptr = kmalloc(size,GFP_KERNEL);
-        if(!ptr->buffptr)
+        ptr->buffer = kmalloc(size,GFP_KERNEL);
+        if(!ptr->buffer)
         {
             retval = -ENOMEM;
             //Add a goto statement. We need to free COPY_BUFFER and 
@@ -47,10 +48,10 @@ static int allocate_memory(struct aesd_buffer_entry *ptr, int size)
     }
     else
     {
-        struct aesd_buffer_entry *temp_ptr = krealloc(ptr->buffptr,size,GFP_KERNEL);
+        temp_ptr = krealloc(ptr->buffer,ptr->size + size,GFP_KERNEL);
         if(!temp_ptr)
         {
-            free(ptr->buffptr);
+            kfree(ptr->buffer);
             retval = -ENOMEM;
             //Add a goto statement. We need to free COPY_BUFFER and WORKING_BUFFER
             //UNLOCK MUTEX   
@@ -58,7 +59,7 @@ static int allocate_memory(struct aesd_buffer_entry *ptr, int size)
         }
         else
         {
-            ptr->buffptr = temp_ptr;
+            ptr->buffer = temp_ptr;
         }
     }
     return retval;
@@ -66,11 +67,11 @@ static int allocate_memory(struct aesd_buffer_entry *ptr, int size)
 
 int aesd_open(struct inode *inode, struct file *filp)
 {
+    struct aesd_dev *info_dev;
     PDEBUG("open");
     /**
      * TODO: handle open
      */
-    struct aesd_dev *info_dev;
     info_dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
     filp->private_data = info_dev;
     return 0;
@@ -89,11 +90,16 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     ssize_t retval = 0;
+    struct aesd_dev *data = filp->private_data;
+    size_t relative_byte_offset;
+    struct aesd_buffer_entry *ret_buf;
+    int bytes_to_eob;
+    int bytes_to_copy;
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle read
      */
-    struct aesd_dev *data = filp->private_data;
+    
     if (mutex_lock_interruptible(&data->lock))
     {
         retval = -EINTR;
@@ -101,18 +107,17 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         //Add a goto statement to the end
         goto ret_func;
     }
-    size_t relative_byte_offset;
-    struct aesd_buffer_entry *ret_buf;
-    aesd_buffer_entry = aesd_circular_buffer_find_entry_offset_for_fpos(data,
-                                                                        *f_pos, 
-                                                                         &relative_byte_offset);
-    if(!aesd_buffer_entry)
+
+    ret_buf = aesd_circular_buffer_find_entry_offset_for_fpos(&data->circular_buffer,
+                                                            *f_pos, 
+                                                            &relative_byte_offset);
+    if(!ret_buf)
     {
         //free MUTEX and exit with retval as 0 (EOF reached)
         goto free_lock;
     }
-    int bytes_to_eob = (aesd_buffer_entry->size - relative_byte_offset);
-    int bytes_to_copy = bytes_to_eob<count?bytes_to_eob:count;
+    bytes_to_eob = (ret_buf->size - relative_byte_offset);
+    bytes_to_copy = bytes_to_eob<count?bytes_to_eob:count;
     if (copy_to_user(buf, (ret_buf->buffptr + relative_byte_offset), bytes_to_copy)) 
     {
 		retval = -EFAULT;
@@ -120,7 +125,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         goto free_lock;
 	}
     //return number of bytes copied to buffer
-    ret_val += bytes_to_copy;
+    retval += bytes_to_copy;
     free_lock: mutex_unlock(&data->lock);
     ret_func: return retval;
 }
@@ -129,6 +134,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     ssize_t retval = 0;
+    struct aesd_dev *data = filp->private_data;
+    struct aesd_buffer_entry enqueue_buffer;
+    struct working_buffer copy_buffer;
+    int mem_to_malloc,i,start_ptr = 0;
+    char *free_buffer;
     PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle write
@@ -138,7 +148,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         goto ret_func;
     }
 
-    struct aesd_dev *data = filp->private_data;
+    
     if (mutex_lock_interruptible(&data->lock))
     {
         retval = -EINTR;
@@ -146,10 +156,10 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         //Add a goto statement to the end
         goto ret_func;
     }
-    struct aesd_buffer_entry copy_buffer;
+    
     //Allocate normal kernel ram. May sleep.
-    copy_buffer.buffptr = kmalloc(count,GFP_KERNEL);
-    if(!copy_buffer.buffptr)
+    copy_buffer.buffer = kmalloc(count,GFP_KERNEL);
+    if(!copy_buffer.buffer)
     {
         retval = -ENOMEM;
         
@@ -159,7 +169,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     copy_buffer.size = count;
     
     //Copy the data from user space buffer into kernel space 
-    if (copy_from_user(copy_buffer.buffptr, buf, count)) 
+    if (copy_from_user(copy_buffer.buffer, buf, count)) 
     {
 		retval = -EFAULT;
         
@@ -169,17 +179,16 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	}
     //WRITE LOGIC
     //Parse the copy buffer 
-    int start_ptr = 0;
-    int mem_to_malloc;
-    for(int i = 0;i<count;i++)
+
+    for(i = 0;i<count;i++)
     {
-        if(copy_buffer[start_ptr+i]=='\n')
+        if(copy_buffer.buffer[start_ptr+i]=='\n')
         {
             //check if working buffer size is 0, if it is malloc
             //else realloc 
             mem_to_malloc = (i-start_ptr) +1;
 
-            if(allocate_memory(data->working_buffer.buffptr, mem_to_malloc)<0)
+            if(allocate_memory(&data->working_buffer, mem_to_malloc)<0)
             {
                 retval = -ENOMEM;
 		        //Add a goto statement. We need to free COPY_BUFFER and 
@@ -187,26 +196,28 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 goto copy_buff_free;
             }
             //CHECK if RIGHT
-            memcpy((data->working_buffer.buffptr + data->working_buffer.size),(copy_buffer+start_ptr),mem_to_malloc);
-            char *free_buffer = aesd_circular_buffer_add_entry(data,&data->working_buffer);
+            memcpy((data->working_buffer.buffer + data->working_buffer.size),(copy_buffer.buffer+start_ptr),mem_to_malloc);
+            data->working_buffer.size += mem_to_malloc;
+            enqueue_buffer.buffptr = data->working_buffer.buffer;  
+            enqueue_buffer.size = data->working_buffer.size;
+            free_buffer = aesd_circular_buffer_add_entry(&data->circular_buffer,&enqueue_buffer);
             if(free_buffer)
             {
                 kfree(free_buffer);
             }
-            data->working_buffer.buffptr = NULL;
             data->working_buffer.size = 0;
             start_ptr = i+1;
-            ret_val += mem_to_malloc;
+            retval += mem_to_malloc;
         }
         if(i == count - 1)
         {
             //incomplete packet transmitted
-            if(copy_buffer[i] != '\n')
+            if(copy_buffer.buffer[i] != '\n')
             {
                 mem_to_malloc = (i-start_ptr) +1;
                 //check if working buffer size is 0, if it is malloc
                 //else realloc 
-                if(allocate_memory(data->working_buffer.buffptr, mem_to_malloc)<0)
+                if(allocate_memory(&data->working_buffer, mem_to_malloc)<0)
                 {
                     retval = -ENOMEM;
                     
@@ -214,13 +225,13 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                     //UNLOCK MUTEX   
                     goto copy_buff_free;
                 }
-                memcpy((data->working_buffer.buffptr + data->working_buffer.size),(copy_buffer+start_ptr),mem_to_malloc);
-                data->working_buffer.size = mem_to_malloc;
-                ret_val += mem_to_malloc;
+                memcpy((data->working_buffer.buffer + data->working_buffer.size),(copy_buffer.buffer+start_ptr),mem_to_malloc);
+                data->working_buffer.size += mem_to_malloc;
+                retval += mem_to_malloc;
             }
         }
     }
-    copy_buff_free: free(copy_buffer.buffptr);
+    copy_buff_free: kfree(copy_buffer.buffer);
     release_lock: mutex_unlock(&data->lock);
     ret_func: return retval;
 }
