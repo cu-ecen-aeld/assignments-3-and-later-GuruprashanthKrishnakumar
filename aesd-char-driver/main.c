@@ -125,6 +125,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     if(!ret_buf)
     {
         //free MUTEX and exit with retval as 0 (EOF reached)
+        *f_pos = 0;
         goto free_lock;
     }
     //bytes to end of buffer 
