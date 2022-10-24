@@ -323,6 +323,12 @@ void aesd_cleanup_module(void)
      * TODO: cleanup AESD specific poritions here as necessary
      */
     //destroy mutex
+    if(mutex_lock_interruptible(&aesd_device.lock))
+    {
+        PDEBUG("MUTEX UNLOCK FAILED");
+    }
+    destroy_circular_buffer(&aesd_device.circular_buffer);
+    mutex_unlock(&aesd_device.lock);
     mutex_destroy(&aesd_device.lock);
     unregister_chrdev_region(devno, 1);
 }

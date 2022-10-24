@@ -10,7 +10,7 @@
 
 #ifdef __KERNEL__
 #include <linux/string.h>
-
+#include <linux/slab.h>
 #else
 #include <string.h>
 #include <stdio.h>
@@ -117,4 +117,35 @@ char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const 
 void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 {
     memset(buffer,0,sizeof(struct aesd_circular_buffer));
+}
+
+void destroy_circular_buffer(struct aesd_circular_buffer *buffer)
+{
+    uint8_t ptr;
+    char *entry;
+    if(!buffer)
+    {
+        return;
+    }
+    if(buffer->in_offs == buffer->out_offs && !buffer->full)
+    {
+        return;
+    }
+    ptr =  buffer->out_offs;
+    entry = (char *)buffer->entry[ptr].buffptr;
+    while(entry)
+    {
+        #ifdef __KERNEL__
+        kfree(entry);
+        #else
+        free(entry);
+        #endif
+        ptr = ((ptr + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
+        if(ptr == buffer->in_offs)
+        {
+            break;
+        }
+        entry = (char *)buffer->entry[ptr].buffptr;
+    }
+
 }
