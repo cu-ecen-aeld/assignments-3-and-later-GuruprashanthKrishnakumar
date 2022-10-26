@@ -7,7 +7,6 @@
 *   date:      10/01/2022
 *   refs:      https://beej.us/guide/bgnet/html/, lecture slides of ECEN 5713 - Advanced Embedded Software Dev.
 */
-
 /*
 *   HEADER FILES
 */
@@ -36,8 +35,14 @@
 *   MACROS
 */
 #define BUF_SIZE_UNIT           (1024)
-#define LOG_FILE                ("/var/tmp/aesdsocketdata")
-#define CIRCULAR_BUF_DEPTH      (8)
+#define USE_AESD_CHAR_DEVICE
+
+#ifdef  USE_AESD_CHAR_DEVICE
+    #define LOG_FILE                ("/dev/aesdchar")
+#else
+    #define LOG_FILE                ("/var/tmp/aesdsocketdata")
+    #define CIRCULAR_BUF_DEPTH      (8)
+#endif
 /*
 *   GLOBALS
 */
@@ -46,13 +51,11 @@ typedef enum
     Accept_Connections,
     Join_threads,
 }main_thread_states_t;
-
 typedef enum
 {
     Receive_From_Socket,
     Parse_data,
 }worker_threads_states_t;
-
 struct worker_thread_s
 {
     pthread_t thread_id;
@@ -62,7 +65,6 @@ struct worker_thread_s
     char ip_addr[INET6_ADDRSTRLEN];
     TAILQ_ENTRY(worker_thread_s) entries;
 };
-
 typedef struct worker_thread_s worker_thread_t;
 typedef TAILQ_HEAD(head_s, worker_thread_s) head_t;
 typedef struct
@@ -70,22 +72,23 @@ typedef struct
     bool signal_caught;
     bool free_address_info;
     bool free_socket_descriptor;
-    bool disarm_alarm;
     struct addrinfo *host_addr_info;
     int socket_descriptor;
-    pthread_mutex_t mutex;
     int connection_count;
+#ifndef USE_AESD_CHAR_DEVICE
+    bool disarm_alarm;
+    pthread_mutex_t mutex;
     timer_t timer_1;
     struct itimerspec itime;
+#endif
 }socket_state_t;
-
 socket_state_t socket_state;
 
+#ifndef USE_AESD_CHAR_DEVICE
 typedef struct
 {
     char time_string[100];
 }circular_buf_data_t;
-
 typedef struct
 {
     uint32_t wptr;
@@ -94,13 +97,11 @@ typedef struct
     bool queue_full;
     circular_buf_data_t time_buf[CIRCULAR_BUF_DEPTH];
 }circular_buf_metadata_t;
-
 circular_buf_metadata_t circular_buf;
-
+#endif
 /*
 *   STATIC FUNCTION PROTOTYPES
 */
-
 /*
 *   Checks the state of booleans in the socket_state structure and performs neccesarry cleanups like 
 *   closing fds, freeing memory etc.,
@@ -111,7 +112,17 @@ circular_buf_metadata_t circular_buf;
 *       None
 */
 static void perform_cleanup();
-
+#ifndef USE_AESD_CHAR_DEVICE 
+/*
+*   Thread-per-connection. Reads off a socket descriptor until recv
+*   returns 0 and dumps when \n is encountered.
+*
+*   Args:
+*       data - buffer to store dequeued timestamp
+*   Params:
+*       success/failure
+*/
+static void* server_thread(void* thread_param);
 
 /*
 *   Initializes circular buffer used for storing timestamps
@@ -122,7 +133,6 @@ static void perform_cleanup();
 *       None
 */
 static void initialize_circular_buf();
-
 /*
 *   Create an interval timer and arm it to expire every 10s.
 *
@@ -133,6 +143,57 @@ static void initialize_circular_buf();
 */
 static int create_and_arm_timer();
 
+/*
+*   Disarm the timer and close it.
+*
+*   Args:
+*       none
+*   Params:
+*       none 
+*/
+static void disarm_and_destroy_timer();
+
+/*
+*   Signal handler for SIGINT and SIGTERM. Enqueue timestamp into circular buffer.
+*
+*   Args:
+*       None
+*   Params:
+*       None
+*/
+static void alarmhandler();
+
+/*
+*   Enqueues timestamp into circular buffer.
+*
+*   Args:
+*       data - data to be enqueued
+*   Params:
+*       success/failure
+*/
+static int enqueue_data_into_circ_buf(char* data);
+/*
+*   Dequeues timestamp from circular buffer.
+*
+*   Args:
+*       data - buffer to store dequeued timestamp
+*   Params:
+*       success/failure
+*/
+static int dequeue_data_from_circ_buf(char* buf); 
+
+/*
+*   Return the next pointer of read/write pointer passed while handling wraparound
+*
+*   Args:
+*       ptr - pointer for which nextptr needs to be calculated
+*   Params:
+*       nextptr
+*/
+static uint32_t nextPtr(uint32_t ptr);
+#else
+static void* aesd_char_thread(void* thread_param);
+#endif
 
 /*
 *   Setup signal handler for the signal number passed 
@@ -143,17 +204,6 @@ static int create_and_arm_timer();
 *       0 if successful, -1 if failed 
 */
 static int setup_signal(int signo);
-
-
-/*
-*   Disarm the timer and close it.
-*
-*   Args:
-*       none
-*   Params:
-*       none 
-*/
-static void disarm_and_destroy_timer();
 
 /*
 *   Signal handler for SIGINT and SIGTERM. If any open connection is on-going on the socket,
@@ -167,15 +217,6 @@ static void disarm_and_destroy_timer();
 static void sighandler();
 
 /*
-*   Signal handler for SIGINT and SIGTERM. Enqueue timestamp into circular buffer.
-*
-*   Args:
-*       None
-*   Params:
-*       None
-*/
-static void alarmhandler();
-/*
 *   Returns the IP address present in the socket address data structure passed.
 *
 *   Args:
@@ -184,7 +225,6 @@ static void alarmhandler();
 *       IPv4 or IPv6 address contained in the socket address data structure
 */
 static void *get_in_addr(struct sockaddr *sa);
-
 /*
 *   Dumps the content passed to a file.
 *
@@ -196,7 +236,6 @@ static void *get_in_addr(struct sockaddr *sa);
 *       Success or failure
 */
 static int dump_content(int fd, char* string,int write_len);
-
 /*
 *   Reads from a file and echoes it back across the socket.
 *
@@ -207,7 +246,6 @@ static int dump_content(int fd, char* string,int write_len);
 *       Success or failure
 */
 static int echo_file_socket(int fd, int socket_fd);
-
 /*
 *   Initializes the socket state structure to a known initial state.
 *
@@ -218,62 +256,25 @@ static int echo_file_socket(int fd, int socket_fd);
 */
 static void initialize_socket_state();
 
-
-/*
-*   Enqueues timestamp into circular buffer.
-*
-*   Args:
-*       data - data to be enqueued
-*   Params:
-*       success/failure
-*/
-static int enqueue_data_into_circ_buf(char* data);
-
-
-
-/*
-*   Dequeues timestamp from circular buffer.
-*
-*   Args:
-*       data - buffer to store dequeued timestamp
-*   Params:
-*       success/failure
-*/
-static int dequeue_data_from_circ_buf(char* buf); 
-
-
-/*
-*   Thread-per-connection. Reads off a socket descriptor until recv
-*   returns 0 and dumps when \n is encountered.
-*
-*   Args:
-*       data - buffer to store dequeued timestamp
-*   Params:
-*       success/failure
-*/
-static void* server_thread(void* thread_param);
-
-/*
-*   Return the next pointer of read/write pointer passed while handling wraparound
-*
-*   Args:
-*       ptr - pointer for which nextptr needs to be calculated
-*   Params:
-*       nextptr
-*/
-static uint32_t nextPtr(uint32_t ptr);
-
 /*
 *   FUNCTION DEFINITIONS
 */
 
-static uint32_t nextPtr(uint32_t ptr) {
+#ifndef USE_AESD_CHAR_DEVICE
+static void initialize_circular_buf()
+{
+    circular_buf.wptr = 0;
+    circular_buf.rptr = 0;
+    circular_buf.queue_full = false;
+    circular_buf.queue_empty = true;
+}
 
+static uint32_t nextPtr(uint32_t ptr) {
   // Student edit:
   // Create this function
   return ((ptr+1)&(CIRCULAR_BUF_DEPTH - 1));
-
 } // nextPtr()
+
 
 /*
 *    Note on Circular buffer: 
@@ -298,7 +299,6 @@ static int enqueue_data_into_circ_buf(char* data)
   }
   return 0;
 }
-
 static int dequeue_data_from_circ_buf(char* buf)
 {
   if(circular_buf.queue_empty)
@@ -315,40 +315,6 @@ static int dequeue_data_from_circ_buf(char* buf)
   return 0;
 }
 
-static int setup_signal(int signo)
-{
-    struct sigaction action;
-    if(signo == SIGINT || signo == SIGTERM)
-    {
-        action.sa_handler = sighandler;
-    }
-    else if(signo == SIGALRM)
-    {
-        action.sa_handler = alarmhandler;
-    }
-    action.sa_flags = 0;
-    sigset_t empty;
-    if(sigemptyset(&empty) == -1)
-    {
-        syslog(LOG_ERR, "Could not set up empty signal set: %s.", strerror(errno));
-        return -1; 
-    }
-    action.sa_mask = empty;
-    if(sigaction(signo, &action, NULL) == -1)
-    {
-        syslog(LOG_ERR, "Could not set up handle for signal: %s.", strerror(errno));
-        return -1;         
-    }
-    return 0;
-}
-
-static void initialize_circular_buf()
-{
-    circular_buf.wptr = 0;
-    circular_buf.rptr = 0;
-    circular_buf.queue_full = false;
-    circular_buf.queue_empty = true;
-}
 
 static int create_and_arm_timer()
 {
@@ -372,7 +338,6 @@ static int create_and_arm_timer()
     }
     return 0;
 }
-
 static void disarm_and_destroy_timer()
 {
     int flags = 0;
@@ -382,48 +347,6 @@ static void disarm_and_destroy_timer()
     socket_state.itime.it_value.tv_nsec = 0;
     timer_settime(socket_state.timer_1, flags, &socket_state.itime,NULL);
     timer_delete(socket_state.timer_1);
-}
-static void initialize_socket_state()
-{
-
-    socket_state.free_address_info = false;
-    socket_state.free_socket_descriptor = false;
-    socket_state.signal_caught = false;
-    socket_state.disarm_alarm = false;
-    socket_state.host_addr_info = NULL;
-    pthread_mutex_init(&socket_state.mutex, NULL);
-    socket_state.connection_count = 0;
-}
-static void perform_cleanup()
-{
-    if(socket_state.host_addr_info && socket_state.free_address_info)
-    {
-        freeaddrinfo(socket_state.host_addr_info);
-    }
-    if(socket_state.free_address_info)
-    {
-        close(socket_state.socket_descriptor);
-    }
-    if(socket_state.disarm_alarm)
-    {
-        disarm_and_destroy_timer();
-    }
-    pthread_mutex_destroy(&socket_state.mutex);
-    //Disarm Alarm
-    closelog();
-}
-static void shutdown_function()
-{
-    printf("\nCaught Signal. Exiting\n");
-    perform_cleanup();
-    printf("Deleting file\n");
-    unlink("/var/tmp/aesdsocketdata");
-    exit(1);
-}
-
-static void sighandler()
-{
-    socket_state.signal_caught = true;
 }
 
 /*
@@ -442,15 +365,91 @@ static void alarmhandler()
     enqueue_data_into_circ_buf(buffer);
     
 }
+#endif
+
+static int setup_signal(int signo)
+{
+    struct sigaction action;
+    if(signo == SIGINT || signo == SIGTERM)
+    {
+        action.sa_handler = sighandler;
+    }
+    #ifndef USE_AESD_CHAR_DEVICE
+    else if(signo == SIGALRM)
+    {
+        action.sa_handler = alarmhandler;
+    }
+    #endif
+    action.sa_flags = 0;
+    sigset_t empty;
+    if(sigemptyset(&empty) == -1)
+    {
+        syslog(LOG_ERR, "Could not set up empty signal set: %s.", strerror(errno));
+        return -1; 
+    }
+    action.sa_mask = empty;
+    if(sigaction(signo, &action, NULL) == -1)
+    {
+        syslog(LOG_ERR, "Could not set up handle for signal: %s.", strerror(errno));
+        return -1;         
+    }
+    return 0;
+}
+
+static void initialize_socket_state()
+{
+    socket_state.free_address_info = false;
+    socket_state.free_socket_descriptor = false;
+    socket_state.signal_caught = false;
+    socket_state.host_addr_info = NULL;
+    socket_state.connection_count = 0;
+    #ifndef USE_AESD_CHAR_DEVICE
+    socket_state.disarm_alarm = false;
+    pthread_mutex_init(&socket_state.mutex, NULL);
+    #endif
+}
+static void perform_cleanup()
+{
+    if(socket_state.host_addr_info && socket_state.free_address_info)
+    {
+        freeaddrinfo(socket_state.host_addr_info);
+    }
+    if(socket_state.free_address_info)
+    {
+        close(socket_state.socket_descriptor);
+    }
+    #ifndef USE_AESD_CHAR_DEVICE
+    if(socket_state.disarm_alarm)
+    {
+        disarm_and_destroy_timer();
+    }
+    pthread_mutex_destroy(&socket_state.mutex);
+    #endif
+    //Disarm Alarm
+    closelog();
+}
+static void shutdown_function()
+{
+    printf("\nCaught Signal. Exiting\n");
+    perform_cleanup();
+    #ifndef USE_AESD_CHAR_DEVICE
+    printf("Deleting file\n");
+    unlink("/var/tmp/aesdsocketdata");
+    #endif
+    exit(1);
+}
+static void sighandler()
+{
+    socket_state.signal_caught = true;
+}
+
 static void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
     }
-
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
-
 static int dump_content(int fd, char* string,int write_len)
 {
     ssize_t ret; 
@@ -515,11 +514,158 @@ static int echo_file_socket(int fd, int socket_fd)
     }
     return 0;
 }
-
+#ifndef USE_AESD_CHAR_DEVICE
 static void* server_thread(void* thread_param)
 {
     worker_thread_t *thread_params = (worker_thread_t *)thread_param;
     int file_descriptor,num_bytes_read = 0,start_ptr = 0,num_bytes_to_read=0,buf_len=0,buf_cap=0,status=0;
+    char *ptr,*buf;
+    while(1)
+    {
+        switch(thread_params->curr_state)
+        {
+            case Receive_From_Socket:
+                if(buf_cap == buf_len)
+                {
+                    if(buf_cap == 0)
+                    {
+                        buf = malloc(BUF_SIZE_UNIT);
+                        if(!buf)
+                        {
+                            printf("Insufficient memory. Exiting\n");
+                            //socket_file_descriptor needs to be freed.
+                            //completion boolean has to be set
+                            goto free_socket_fd;
+                        }
+                    }
+                    else
+                    {
+                        int new_len = buf_cap + BUF_SIZE_UNIT; 
+                        char *new_buf;   
+                        new_buf = realloc(buf,new_len);     
+                        if(!new_buf)
+                        {
+                            printf("Insufficient memory. Exiting\n");
+                            free(buf);
+                            //buf has to be freed
+                            //socket_file_descriptor needs to be freed.
+                            //completion boolean has to be set
+                            goto free_mem;
+                        }
+                        buf = new_buf;           
+                    }
+                    buf_cap += BUF_SIZE_UNIT;
+                }
+                num_bytes_read = 0;
+                num_bytes_read = recv(thread_params->socket_file_descriptor,(buf+buf_len),(buf_cap - buf_len),0);
+                if(num_bytes_read == -1)
+                {
+                    syslog(LOG_ERR,"Recv: %s",strerror(errno));
+                    //buf has to be freed
+                    //socket_file_descriptor needs to be freed.
+                    //completion boolean has to be set
+                    goto free_mem;
+                }
+                else if(num_bytes_read>0)
+                {
+                    thread_params->curr_state = Parse_data;
+                }
+                else if(num_bytes_read == 0)
+                {
+                    //buf has to be freed
+                    //socket_file_descriptor needs to be freed.
+                    //completion boolean has to be set
+                    goto free_mem;
+                }
+                break;
+            case Parse_data:
+                num_bytes_to_read = ((buf_len - start_ptr) + num_bytes_read);
+                //printf("Bytes read %d num_bytes_to_read %d\n",num_bytes_read,num_bytes_to_read);
+                int temp_read_var = num_bytes_to_read;
+                for(ptr = &buf[start_ptr];temp_read_var>0;ptr++,temp_read_var--)
+                {
+                    if(*ptr == '\n')
+                    {
+                        temp_read_var--;
+                        status = pthread_mutex_lock(&socket_state.mutex);
+                        if(status != 0)
+                        {
+                            syslog(LOG_ERR,"Mutex Lock: %s",strerror(errno));
+                            //buf has to be freed
+                            //socket_file_descriptor needs to be freed.
+                            //completion boolean has to be set
+                            goto free_mem;
+                        }
+                        file_descriptor = open(LOG_FILE,O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
+                        if(file_descriptor == -1)
+                        {
+                            syslog(LOG_ERR,"Open: %s",strerror(errno));
+                            goto unlock_mutex;
+                        }
+                        //printf("Temp var read %d\n",temp_read_var);
+                        int bytes_written_until_newline = (num_bytes_to_read - temp_read_var);
+                        //printf("Total buffsize %d buf len %d bytes written until newline %d \n",buf_cap,buf_len,bytes_written_until_newline);
+                        if(dump_content(file_descriptor,&buf[start_ptr],bytes_written_until_newline)==-1)
+                        {
+                            //file_descriptor needs to be closed
+                            //mutex has to be unlocked
+                            //buf has to be freed
+                            //socket_file_descriptor needs to be freed.
+                            //completion boolean has to be set
+                            //perform cleanup and exit, but this time unlock first
+                            goto close_file_descriptor;
+                        }                        
+                        lseek(file_descriptor, 0, SEEK_SET );
+                        //printf("Total Bytes written to file %d\n",total_bytes_written_to_file);
+                        if(echo_file_socket(file_descriptor,thread_params->socket_file_descriptor)==-1)
+                        {
+                            //file_descriptor needs to be closed
+                            //mutex has to be unlocked
+                            //buf has to be freed
+                            //socket_file_descriptor needs to be freed.
+                            //completion boolean has to be set
+                            //perform cleanup and exit, but this time unlock first
+                            goto close_file_descriptor;
+                        }
+                        char time_buf_string[80];
+                    
+                        if(dequeue_data_from_circ_buf(time_buf_string)==0)
+                        {
+                            if(dump_content(file_descriptor,time_buf_string,strlen(time_buf_string))!=-1)
+                            {
+                                printf("wrote from thread\n");
+                                bytes_written_until_newline += strlen(time_buf_string);
+                            }
+                        }
+                        start_ptr = bytes_written_until_newline;
+                        close(file_descriptor);
+                        status = pthread_mutex_unlock(&socket_state.mutex);
+                        if(status != 0)
+                        {
+                            syslog(LOG_ERR,"Mutex Unlock: %s",strerror(errno));
+                            goto unlock_mutex;
+                        }
+                        break;
+                    }
+                }
+                buf_len += num_bytes_read;
+                thread_params->curr_state = Receive_From_Socket;
+                break;
+        }
+    }
+    close_file_descriptor: close(file_descriptor);
+    unlock_mutex: pthread_mutex_unlock(&socket_state.mutex);
+    free_mem: free(buf);
+    free_socket_fd: close(thread_params->socket_file_descriptor);
+                    thread_params->thread_completed = true;
+                    syslog(LOG_DEBUG,"Closed connection from %s",thread_params->ip_addr);
+                    return 0;
+}
+#else
+static void* aesd_char_thread(void* thread_param)
+{
+    worker_thread_t *thread_params = (worker_thread_t *)thread_param;
+    int file_descriptor,num_bytes_read = 0,start_ptr = 0,num_bytes_to_read=0,buf_len=0,buf_cap=0;
     char *ptr,*buf;
     while(1)
     {
@@ -589,20 +735,11 @@ static void* server_thread(void* thread_param)
                     if(*ptr == '\n')
                     {
                         temp_read_var--;
-                        status = pthread_mutex_lock(&socket_state.mutex);
-                        if(status != 0)
-                        {
-                            syslog(LOG_ERR,"Mutex Lock: %s",strerror(errno));
-                            //buf has to be freed
-                            //socket_file_descriptor needs to be freed.
-                            //completion boolean has to be set
-                            goto free_mem;
-                        }
                         file_descriptor = open(LOG_FILE,O_RDWR|O_CREAT|O_APPEND,S_IRWXU|S_IRWXG|S_IRWXO);
                         if(file_descriptor == -1)
                         {
                             syslog(LOG_ERR,"Open: %s",strerror(errno));
-                            goto unlock_mutex;
+                            goto free_mem;
                         }
                         //printf("Temp var read %d\n",temp_read_var);
                         int bytes_written_until_newline = (num_bytes_to_read - temp_read_var);
@@ -610,44 +747,25 @@ static void* server_thread(void* thread_param)
                         if(dump_content(file_descriptor,&buf[start_ptr],bytes_written_until_newline)==-1)
                         {
                             //file_descriptor needs to be closed
-                            //mutex has to be unlocked
                             //buf has to be freed
                             //socket_file_descriptor needs to be freed.
                             //completion boolean has to be set
                             //perform cleanup and exit, but this time unlock first
                             goto close_file_descriptor;
                         }                        
-                        lseek(file_descriptor, 0, SEEK_SET );
                         //printf("Total Bytes written to file %d\n",total_bytes_written_to_file);
 
                         if(echo_file_socket(file_descriptor,thread_params->socket_file_descriptor)==-1)
                         {
                             //file_descriptor needs to be closed
-                            //mutex has to be unlocked
                             //buf has to be freed
                             //socket_file_descriptor needs to be freed.
                             //completion boolean has to be set
                             //perform cleanup and exit, but this time unlock first
                             goto close_file_descriptor;
                         }
-                        char time_buf_string[80];
-                    
-                        if(dequeue_data_from_circ_buf(time_buf_string)==0)
-                        {
-                            if(dump_content(file_descriptor,time_buf_string,strlen(time_buf_string))!=-1)
-                            {
-                                printf("wrote from thread\n");
-                                bytes_written_until_newline += strlen(time_buf_string);
-                            }
-                        }
                         start_ptr = bytes_written_until_newline;
                         close(file_descriptor);
-                        status = pthread_mutex_unlock(&socket_state.mutex);
-                        if(status != 0)
-                        {
-                            syslog(LOG_ERR,"Mutex Unlock: %s",strerror(errno));
-                            goto unlock_mutex;
-                        }
                         break;
                     }
                 }
@@ -657,14 +775,14 @@ static void* server_thread(void* thread_param)
         }
     }
     close_file_descriptor: close(file_descriptor);
-    unlock_mutex: pthread_mutex_unlock(&socket_state.mutex);
+    //unlock_mutex: pthread_mutex_unlock(&socket_state.mutex);
     free_mem: free(buf);
     free_socket_fd: close(thread_params->socket_file_descriptor);
                     thread_params->thread_completed = true;
                     syslog(LOG_DEBUG,"Closed connection from %s",thread_params->ip_addr);
                     return 0;
 }
-
+#endif
 /*
 *   Writing the timestamp back to file is done from the main thread if there are no open connections,
 *   otherwise it is done from the threads itself. This is to avoid skipping timestamps if the 
@@ -673,7 +791,6 @@ static void* server_thread(void* thread_param)
 int main(int argc,char **argv)
 {
     initialize_socket_state();
-    initialize_circular_buf();
     bool run_as_daemon = false;
     main_thread_states_t main_thread_state;
     openlog(NULL,0,LOG_USER);
@@ -686,7 +803,6 @@ int main(int argc,char **argv)
                 run_as_daemon = true;
                 break;
         }
-
     }
     int status=0,yes=1;
     struct addrinfo hints;
@@ -699,7 +815,6 @@ int main(int argc,char **argv)
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
     //TODO: Call freeaddrinfo() once done with servinfo
-
     /*
     *   Get info regarding the peer at Port 9000
     */
@@ -708,7 +823,6 @@ int main(int argc,char **argv)
     {
         syslog(LOG_ERR,"getaddrinfo: %s",strerror(errno));
         return -1;
-
     }
     socket_state.free_address_info = true;
     /*
@@ -806,7 +920,6 @@ int main(int argc,char **argv)
     */
     //TODO: Setup Signal Alarm 
     //Set up the signals handler
-
     
     if(setup_signal(SIGINT)== -1)
     {
@@ -818,6 +931,8 @@ int main(int argc,char **argv)
         perform_cleanup();
         return -1;        
     }
+    #ifndef USE_AESD_CHAR_DEVICE
+    initialize_circular_buf();
     if(setup_signal(SIGALRM)==-1)
     {
         perform_cleanup();
@@ -829,10 +944,11 @@ int main(int argc,char **argv)
         return -1;    
     }
     socket_state.disarm_alarm = true;
+    #endif
+    
     head_t head;
     TAILQ_INIT(&head);
     //Use inside thread
-
     /*
     *   Simple statemachine implemented to handle socket reading loop.
     *
@@ -879,10 +995,17 @@ int main(int argc,char **argv)
                 node->curr_state = Receive_From_Socket;
                 node->socket_file_descriptor = socket_fd;
                 strcpy(node->ip_addr,s);
+                #ifdef USE_AESD_CHAR_DEVICE
+                status = pthread_create(&node->thread_id,
+                            (void*)0,
+                            aesd_char_thread,
+                            node);
+                #else
                 status = pthread_create(&node->thread_id,
                              (void*)0,
                              server_thread,
                              node);
+                #endif
                 if(status !=0)
                 {
                     syslog(LOG_ERR,"Listen: %s",strerror(errno));
@@ -913,6 +1036,7 @@ int main(int argc,char **argv)
                         }
                     }
                 }
+                #ifndef USE_AESD_CHAR_DEVICE
                 if(socket_state.connection_count==0)
                 {
                     //trylock instead of lock to prevent race conditions ending up in a deadlock.
@@ -932,6 +1056,7 @@ int main(int argc,char **argv)
                         pthread_mutex_unlock(&socket_state.mutex);
                     }
                 }
+                #endif
                 if(socket_state.signal_caught)
                 {
                     if(socket_state.connection_count==0)
