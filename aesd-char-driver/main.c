@@ -25,6 +25,8 @@
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
+#define DELIMITER           ('\n')
+
 MODULE_AUTHOR("Guruprashanth Krishnakumar"); /** TODO: fill in your name **/
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -40,6 +42,8 @@ struct aesd_dev aesd_device;
 *       0 if success, -ENOMEM if failed
 */
 static int allocate_memory(struct working_buffer *ptr, int size);
+
+static int find_delimiter(char *ptr, int size);
 
 static int allocate_memory(struct working_buffer *ptr, int size)
 {
@@ -72,6 +76,19 @@ static int allocate_memory(struct working_buffer *ptr, int size)
         }
     }
     return retval;
+}
+
+static int find_delimiter(char *ptr, int size)
+{
+    int i;
+    for(i = 0;i<size;i++)
+    {
+        if(ptr[i] == DELIMITER)
+        {
+            return i;
+        }
+    }
+    return -1;
 }
 
 int aesd_open(struct inode *inode, struct file *filp)
@@ -155,7 +172,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     struct aesd_dev *data;
     struct aesd_buffer_entry enqueue_buffer;
     struct working_buffer copy_buffer;
-    int mem_to_malloc,i,start_ptr = 0;
+    int mem_to_malloc,start_ptr = 0,delim_loc = 0;
     char *free_buffer;
     if(!filp || !filp->private_data)
     {
@@ -200,26 +217,23 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         goto release_lock;
 	}
     //WRITE LOGIC
-    //Parse the copy buffer 
-
-    for(i = 0;i<count;i++)
+    //Parse the copy buffer
+    while(delim_loc != -1)
     {
-        if(copy_buffer.buffer[start_ptr+i]=='\n')
+        delim_loc = find_delimiter(&copy_buffer.buffer[start_ptr],(count - start_ptr));
+        mem_to_malloc = delim_loc==-1?(count - start_ptr):((delim_loc-start_ptr) +1);
+        if(allocate_memory(&data->working_buffer, mem_to_malloc)<0)
         {
-            //check if working buffer size is 0, if it is malloc
-            //else realloc 
-            mem_to_malloc = (i-start_ptr) +1;
-
-            if(allocate_memory(&data->working_buffer, mem_to_malloc)<0)
-            {
-                retval = -ENOMEM;
-		        //Add a goto statement. We need to free COPY_BUFFER and 
-                //UNLOCK MUTEX   
-                goto copy_buff_free;
-            }
-            //Copy data to global buffer
-            memcpy((data->working_buffer.buffer + data->working_buffer.size),(copy_buffer.buffer+start_ptr),mem_to_malloc);
-            data->working_buffer.size += mem_to_malloc;
+            retval = -ENOMEM;
+		    //Add a goto statement. We need to free COPY_BUFFER and 
+            //UNLOCK MUTEX   
+            goto copy_buff_free;
+        }
+        //Copy data to global buffer
+        memcpy((data->working_buffer.buffer + data->working_buffer.size),(copy_buffer.buffer+start_ptr),mem_to_malloc);
+        data->working_buffer.size += mem_to_malloc;
+        if(delim_loc != -1)
+        {
             enqueue_buffer.buffptr = data->working_buffer.buffer;  
             enqueue_buffer.size = data->working_buffer.size;
             //enqueue data
@@ -231,31 +245,9 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             }
             data->working_buffer.size = 0;
             //update start pointer in case multiple \n present
-            start_ptr = i+1;
-            retval += mem_to_malloc;
+            start_ptr += delim_loc+1;
         }
-        if(i == count - 1)
-        {
-            //incomplete packet transmitted
-            if(copy_buffer.buffer[i] != '\n')
-            {
-                mem_to_malloc = (i-start_ptr) +1;
-                //check if working buffer size is 0, if it is malloc
-                //else realloc 
-                if(allocate_memory(&data->working_buffer, mem_to_malloc)<0)
-                {
-                    retval = -ENOMEM;
-                    
-		            //Add a goto statement. We need to free COPY_BUFFER and 
-                    //UNLOCK MUTEX   
-                    goto copy_buff_free;
-                }
-                //copy data to global buffer and wait for subsequent writes to complete the packet before enqueuing
-                memcpy((data->working_buffer.buffer + data->working_buffer.size),(copy_buffer.buffer+start_ptr),mem_to_malloc);
-                data->working_buffer.size += mem_to_malloc;
-                retval += mem_to_malloc;
-            }
-        }
+        retval += mem_to_malloc;
     }
     //free local buffer
     copy_buff_free: kfree(copy_buffer.buffer);
