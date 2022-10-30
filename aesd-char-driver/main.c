@@ -20,8 +20,8 @@
 #include <linux/slab.h> //kmalloc
 #include <linux/uaccess.h>	/* copy_*_user */
 #include <linux/fs.h> // file_operations
-
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -44,6 +44,8 @@ struct aesd_dev aesd_device;
 static int allocate_memory(struct working_buffer *ptr, int size);
 
 static int find_delimiter(char *ptr, int size);
+
+static long aesd_adjust_file_offset(struct file *filp,unsigned int write_cmd, unsigned int write_cmd_offset);
 
 static int allocate_memory(struct working_buffer *ptr, int size)
 {
@@ -77,7 +79,34 @@ static int allocate_memory(struct working_buffer *ptr, int size)
     }
     return retval;
 }
-
+static long aesd_adjust_file_offset(struct file *filp,unsigned int write_cmd, unsigned int write_cmd_offset)
+{
+    struct aesd_dev *data;
+    loff_t offset;
+    int ret_val;
+    if(!filp->private_data)
+    {
+        return -EINVAL;
+    }
+    data = filp->private_data;
+    if (mutex_lock_interruptible(&data->lock))
+    {
+        return -ERESTARTSYS;
+    }
+    offset = ret_offset(&data->circular_buffer,write_cmd,write_cmd_offset);
+    PDEBUG("Adjust offset to %lld for buf no %u, offset %u",offset,write_cmd,write_cmd_offset);
+    if(offset == -1)
+    {
+        ret_val = -EINVAL;
+    }
+    else
+    {
+        filp->f_pos = offset;
+        ret_val = 0;
+    }
+    mutex_unlock(&data->lock);
+    return ret_val;
+}
 static int find_delimiter(char *ptr, int size)
 {
     int i;
@@ -186,15 +215,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     {
         goto ret_func;
     }
-
-    //block on mutex lock, can be interrupted by signal
-    if (mutex_lock_interruptible(&data->lock))
-    {
-        retval = -EINTR;
-        
-        //Add a goto statement to the end
-        goto ret_func;
-    }
     
     //Allocate normal kernel ram. May sleep.
     copy_buffer.buffer = kmalloc(count,GFP_KERNEL);
@@ -203,7 +223,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         retval = -ENOMEM;
         
         //Add a goto statement, need to unlock mutex
-        goto release_lock;
+        goto copy_buff_free;
     }
     copy_buffer.size = count;
     
@@ -214,8 +234,17 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         
 		//Add a goto statement. We need to free COPY_BUFFER and 
         //UNLOCK MUTEX   
-        goto release_lock;
+        goto copy_buff_free;
 	}
+
+    //block on mutex lock, can be interrupted by signal
+    if (mutex_lock_interruptible(&data->lock))
+    {
+        retval = -EINTR;
+        
+        //Add a goto statement to the end
+        goto copy_buff_free;
+    }
     //WRITE LOGIC
     //Parse the copy buffer
     while(delim_loc != -1)
@@ -227,7 +256,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             retval = -ENOMEM;
 		    //Add a goto statement. We need to free COPY_BUFFER and 
             //UNLOCK MUTEX   
-            goto copy_buff_free;
+            goto release_lock;
         }
         //Copy data to global buffer
         memcpy((data->working_buffer.buffer + data->working_buffer.size),(copy_buffer.buffer+start_ptr),mem_to_malloc);
@@ -244,22 +273,79 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 kfree(free_buffer);
             }
             data->working_buffer.size = 0;
+            PDEBUG("Size of buffer after write %ld",data->circular_buffer.buff_size);
             //update start pointer in case multiple \n present
             start_ptr += delim_loc+1;
         }
         retval += mem_to_malloc;
     }
     //free local buffer
-    copy_buff_free: kfree(copy_buffer.buffer);
     release_lock: mutex_unlock(&data->lock);
+    copy_buff_free: kfree(copy_buffer.buffer);
     ret_func: return retval;
 }
+
+loff_t aesd_llseek(struct file *filp, loff_t off, int whence)
+{
+    loff_t ret_val;
+    struct aesd_dev *data;
+    if(!filp->private_data)
+    {
+        ret_val = -EINVAL;
+        goto ret_func;
+    }
+    data = filp->private_data;
+    if (mutex_lock_interruptible(&data->lock))
+    {
+        ret_val = -EINTR;      
+        //Add a goto statement to the end
+        goto ret_func;
+    }
+    ret_val = fixed_size_llseek(filp,off,whence, data->circular_buffer.buff_size);
+    PDEBUG("Lseek Retval %lld offset %lld size %ld",ret_val,off,data->circular_buffer.buff_size);
+    if(ret_val == -EINVAL)
+    {
+        PDEBUG("Invalid offset!!");
+    }
+    mutex_unlock(&data->lock);
+    ret_func: return ret_val;
+}
+
+
+long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int retval = 0;
+    struct aesd_seekto seekto;
+    if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) return -ENOTTY;
+	if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) return -ENOTTY;
+
+    switch(cmd)
+    {
+        case AESDCHAR_IOCSEEKTO:
+            if(copy_from_user(&seekto,(const void __user *)arg,sizeof(seekto))!=0)
+            {
+                retval = -EFAULT;
+            } 
+            else
+            {
+                retval = aesd_adjust_file_offset(filp,seekto.write_cmd, seekto.write_cmd_offset);
+            }
+            break;
+        default:
+            retval = -ENOTTY;
+            break;
+    }
+    return retval;
+}
+
 struct file_operations aesd_fops = {
-    .owner =    THIS_MODULE,
-    .read =     aesd_read,
-    .write =    aesd_write,
-    .open =     aesd_open,
-    .release =  aesd_release,
+    .owner =            THIS_MODULE,
+    .llseek =           aesd_llseek,
+    .read =             aesd_read,
+    .write =            aesd_write,
+    .unlocked_ioctl =   aesd_ioctl,
+    .open =             aesd_open,
+    .release =          aesd_release,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)

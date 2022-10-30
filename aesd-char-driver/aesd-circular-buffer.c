@@ -19,6 +19,33 @@
 
 #include "aesd-circular-buffer.h"
 
+#ifdef __KERNEL__
+loff_t ret_offset(struct aesd_circular_buffer *buffer,unsigned int buf_no, unsigned int offset_within_buf)
+{
+    int i,offset = 0;
+    printk("aesdchar: Searching for return offset");
+    if(buf_no>(AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)-1)
+    {
+        printk("aesdchar: Invalid buffer number");
+        return -1;
+    }
+    if(offset_within_buf > (buffer->entry[buf_no].size - 1))
+    {
+        printk("aesdchar: Invalid offset");
+        return -1;
+    }
+    for(i=0;i<(buf_no);i++)
+    {
+        printk("aesdchar: i %d ",i);
+        if(buffer->entry[i].size == 0)
+        {
+            return -1;
+        }
+        offset += buffer->entry[i].size;
+    }
+    return (offset + offset_within_buf);
+}
+#endif
 /**
  * @param buffer the buffer to search for corresponding offset.  Any necessary locking must be performed by caller.
  * @param char_offset the position to search for in the buffer list, describing the zero referenced
@@ -95,10 +122,12 @@ char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const 
     if(buffer->in_offs == buffer->out_offs && buffer->full)
     {
         ret_val = (char*)buffer->entry[buffer->out_offs].buffptr;
+        buffer->buff_size -= buffer->entry[buffer->out_offs].size;
         buffer->out_offs = ((buffer->out_offs + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
     }
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size = add_entry->size;
+    buffer->buff_size += add_entry->size;
     buffer->in_offs = ((buffer->in_offs + 1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
     //check if queue full, otherwise update the flag to false (for safety).
     if(buffer->in_offs == buffer->out_offs)

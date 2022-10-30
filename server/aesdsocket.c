@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <time.h>
+#include "aesd_ioctl.h"
 /*
 *   MACROS
 */
@@ -39,6 +40,7 @@
 
 #ifdef  USE_AESD_CHAR_DEVICE
     #define LOG_FILE                ("/dev/aesdchar")
+    #define IOCTL_COMMAND           ("")
 #else
     #define LOG_FILE                ("/var/tmp/aesdsocketdata")
     #define CIRCULAR_BUF_DEPTH      (8)
@@ -84,7 +86,16 @@ typedef struct
 }socket_state_t;
 socket_state_t socket_state;
 
-#ifndef USE_AESD_CHAR_DEVICE
+#ifdef USE_AESD_CHAR_DEVICE
+typedef struct
+{
+	const char *command;
+} command_table_t;
+
+static const command_table_t commands[] = {
+    {"AESDCHAR_IOCSEEKTO:"}
+};
+#else
 typedef struct
 {
     char time_string[100];
@@ -741,19 +752,33 @@ static void* aesd_char_thread(void* thread_param)
                             syslog(LOG_ERR,"Open: %s",strerror(errno));
                             goto free_mem;
                         }
-                        //printf("Temp var read %d\n",temp_read_var);
                         int bytes_written_until_newline = (num_bytes_to_read - temp_read_var);
-                        //printf("Total buffsize %d buf len %d bytes written until newline %d \n",buf_cap,buf_len,bytes_written_until_newline);
-                        if(dump_content(file_descriptor,&buf[start_ptr],bytes_written_until_newline)==-1)
+                        //printf("Temp var read %d\n",temp_read_var);
+                        if(strncmp(&buf[start_ptr],commands[0].command,strlen(commands[0].command))==0)
                         {
-                            //file_descriptor needs to be closed
-                            //buf has to be freed
-                            //socket_file_descriptor needs to be freed.
-                            //completion boolean has to be set
-                            //perform cleanup and exit, but this time unlock first
-                            goto close_file_descriptor;
-                        }                        
+                            struct aesd_seekto seekto;
+                            sscanf(&buf[start_ptr],"AESDCHAR_IOCSEEKTO:%d,%d",&seekto.write_cmd,&seekto.write_cmd_offset);
+                            printf("Write cmd %d, offset %d\n",seekto.write_cmd,seekto.write_cmd_offset);
+                            if(ioctl(file_descriptor,AESDCHAR_IOCSEEKTO,&seekto))
+                            {
+                                syslog(LOG_ERR,"IOCTL: %s",strerror(errno));
+                            }
+                        }
+                        else
+                        {
+                            //printf("Total buffsize %d buf len %d bytes written until newline %d \n",buf_cap,buf_len,bytes_written_until_newline);
+                            if(dump_content(file_descriptor,&buf[start_ptr],bytes_written_until_newline)==-1)
+                            {
+                                //file_descriptor needs to be closed
+                                //buf has to be freed
+                                //socket_file_descriptor needs to be freed.
+                                //completion boolean has to be set
+                                //perform cleanup and exit, but this time unlock first
+                                goto close_file_descriptor;
+                            }                        
                         //printf("Total Bytes written to file %d\n",total_bytes_written_to_file);
+                        }
+
 
                         if(echo_file_socket(file_descriptor,thread_params->socket_file_descriptor)==-1)
                         {
