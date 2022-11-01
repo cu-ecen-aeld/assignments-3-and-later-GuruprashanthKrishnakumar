@@ -754,15 +754,25 @@ static void* aesd_char_thread(void* thread_param)
                         }
                         int bytes_written_until_newline = (num_bytes_to_read - temp_read_var);
                         //printf("Temp var read %d\n",temp_read_var);
+                        //if the socket sent AESDCHAR_IOCSEEKTO command then call the ioctl function
+                        //otherwise write to file.
                         if(strncmp(&buf[start_ptr],commands[0].command,strlen(commands[0].command))==0)
                         {
                             struct aesd_seekto seekto;
-                            sscanf(&buf[start_ptr],"AESDCHAR_IOCSEEKTO:%d,%d",&seekto.write_cmd,&seekto.write_cmd_offset);
-                            printf("Write cmd %d, offset %d\n",seekto.write_cmd,seekto.write_cmd_offset);
-                            if(ioctl(file_descriptor,AESDCHAR_IOCSEEKTO,&seekto))
+                            //check if sscanf was successful
+                            if(sscanf(&buf[start_ptr],"AESDCHAR_IOCSEEKTO:%d,%d",&seekto.write_cmd,&seekto.write_cmd_offset)!=2)
                             {
-                                syslog(LOG_ERR,"IOCTL: %s",strerror(errno));
+                                syslog(LOG_ERR,"Please enter valid arguments to AESDCHAR_IOCSEEKTO");
                             }
+                            else
+                            {
+                                syslog(LOG_DEBUG,"Write cmd %d, offset %d\n",seekto.write_cmd,seekto.write_cmd_offset);
+                                if(ioctl(file_descriptor,AESDCHAR_IOCSEEKTO,&seekto))
+                                {
+                                    syslog(LOG_ERR,"IOCTL: %s",strerror(errno));
+                                }
+                            }
+
                         }
                         else
                         {

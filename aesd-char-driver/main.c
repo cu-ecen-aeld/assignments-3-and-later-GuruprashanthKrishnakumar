@@ -38,13 +38,32 @@ struct aesd_dev aesd_device;
 *   Args:
 *       ptr - store pointer to requested memory here
 *       size - allocated size bytes of memory
-*   Params:
+*   Returns:
 *       0 if success, -ENOMEM if failed
 */
 static int allocate_memory(struct working_buffer *ptr, int size);
 
+/*
+*   Find the delimiter in the passed string
+*
+*   Args:
+*       ptr - string to search the delimiter
+*       size - size of string
+*   Returns:
+*       index of the delimiter or -1 if delim does not exist
+*/
 static int find_delimiter(char *ptr, int size);
 
+
+/*
+*   Set the file offset corresponding to buffer number and offset within that buffer
+*
+*   Args:
+*       write_cmd - buffer number
+*       write_cmd_offset - offset within that buffer
+*   Returns:
+*       0 if successful, -EINVAL if invalid argument passed, -ERESTARTSYS if mutex could not be unlocked
+*/
 static long aesd_adjust_file_offset(struct file *filp,unsigned int write_cmd, unsigned int write_cmd_offset);
 
 static int allocate_memory(struct working_buffer *ptr, int size)
@@ -316,6 +335,7 @@ long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     int retval = 0;
     struct aesd_seekto seekto;
+    //if command number is wrong, return ENOTTY
     if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) return -ENOTTY;
 	if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) return -ENOTTY;
 
