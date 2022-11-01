@@ -30,7 +30,6 @@
 loff_t ret_offset(struct aesd_circular_buffer *buffer,unsigned int buf_no, unsigned int offset_within_buf)
 {
     int i,offset = 0;
-    printk("aesdchar: Searching for return offset");
     //check if buffer index passed > 9
     if(buf_no>(AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)-1)
     {
@@ -46,7 +45,6 @@ loff_t ret_offset(struct aesd_circular_buffer *buffer,unsigned int buf_no, unsig
     //iterate upto previous buffer and add the sizes
     for(i=0;i<(buf_no);i++)
     {
-        printk("aesdchar: i %d ",i);
         //this check is redundant as the second if check would have failed already if not 
         //enough buffers were enqueued, but anyway included for safety.
         if(buffer->entry[i].size == 0)
