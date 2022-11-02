@@ -10,9 +10,9 @@
 
 #include "aesd-circular-buffer.h"
 #include <linux/mutex.h>
-//#define AESD_DEBUG 1  //Remove comment on this line to enable debug
+#define AESD_DEBUG 1  //Remove comment on this line to enable debug
 
-#undef PDEBUG             /* undef it, just in case */
+//#undef PDEBUG             /* undef it, just in case */
 #ifdef AESD_DEBUG
 #  ifdef __KERNEL__
      /* This one if debugging is on, and kernel space */

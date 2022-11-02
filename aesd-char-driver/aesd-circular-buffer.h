@@ -49,6 +49,8 @@ struct aesd_circular_buffer
      * set to true when the buffer entry structure is full
      */
     bool full;
+
+    size_t buff_size;
 };
 
 extern struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
@@ -59,6 +61,11 @@ extern char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer,
 void destroy_circular_buffer(struct aesd_circular_buffer *buffer);
 
 extern void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer);
+
+//inside ifdef because loff_t is not defined in user space and since this is a function that will only be called from kernel space.
+#ifdef __KERNEL__
+loff_t ret_offset(struct aesd_circular_buffer *buffer,unsigned int buf_no, unsigned int offset_within_buf);
+#endif
 
 /**
  * Create a for loop to iterate over each member of the circular buffer.
