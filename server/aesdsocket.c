@@ -760,7 +760,7 @@ static void* aesd_char_thread(void* thread_param)
                         {
                             struct aesd_seekto seekto;
                             //check if sscanf was successful
-                            if(sscanf(&buf[start_ptr],"AESDCHAR_IOCSEEKTO:%d,%d",&seekto.write_cmd,&seekto.write_cmd_offset)!=2)
+                            if(sscanf(&buf[start_ptr],"AESDCHAR_IOCSEEKTO:%u,%u",&seekto.write_cmd,&seekto.write_cmd_offset)!=2)
                             {
                                 syslog(LOG_ERR,"Please enter valid arguments to AESDCHAR_IOCSEEKTO");
                             }
